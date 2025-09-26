@@ -41,6 +41,7 @@ class GravadorDocx:
         self.current_img_label = None
         self.current_img_tk = None
         self.comment_entry = None
+        self.manter_evidencias = None  # Será definido pela escolha do usuário
 
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
@@ -80,7 +81,7 @@ class GravadorDocx:
     def mostrar_janela_configuracao(self):
         config_window = tk.Toplevel(root)
         config_window.title("Configuração de Gravação")
-        config_window.geometry("500x300")
+        config_window.geometry("600x550")
         config_window.resizable(False, False)
         
         config_window.transient(root)
@@ -113,7 +114,7 @@ class GravadorDocx:
         ttk.Button(template_frame, text="Procurar", command=selecionar_template).pack(side=tk.RIGHT)
         
         # Seleção de diretório de destino
-        ttk.Label(main_frame, text="Selecione o diretório de destino:").pack(anchor="w", pady=(10, 5))
+        ttk.Label(main_frame, text="Selecione o diretório de destino:").pack(anchor="w", pady=(20, 5))
         
         dir_frame = ttk.Frame(main_frame)
         dir_frame.pack(fill=tk.X, pady=5)
@@ -129,9 +130,36 @@ class GravadorDocx:
         
         ttk.Button(dir_frame, text="Procurar", command=selecionar_diretorio).pack(side=tk.RIGHT)
         
-        # Botões
+        # Checkbox para manter evidências
+        ttk.Label(main_frame, text="Opções de saída:", font=("Arial", 11, "bold")).pack(anchor="w", pady=(20, 10))
+        
+        # Variável para o checkbox - valor padrão True (marcado)
+        self.manter_evidencias_var = tk.BooleanVar(value=True)
+        
+        # Checkbox
+        checkbox_frame = ttk.Frame(main_frame)
+        checkbox_frame.pack(fill=tk.X, pady=5)
+        
+        manter_checkbox = ttk.Checkbutton(
+            checkbox_frame, 
+            text="Manter arquivos de evidência (prints) na pasta após gerar o DOCX",
+            variable=self.manter_evidencias_var
+        )
+        manter_checkbox.pack(anchor="w")
+        
+        # Label informativa
+        info_label = ttk.Label(
+            main_frame, 
+            text="Se desmarcado, os arquivos de print serão excluídos após a geração do DOCX.", 
+            font=("Arial", 9), 
+            foreground="gray",
+            justify=tk.LEFT
+        )
+        info_label.pack(anchor="w", pady=(5, 15))
+        
+        # Frame para os botões na parte inferior
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(pady=20)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
         
         def iniciar_com_config():
             if not self.template_var.get() or not self.dir_var.get():
@@ -167,6 +195,9 @@ class GravadorDocx:
                     messagebox.showerror("Erro", f"Erro ao verificar a pasta: {str(e)}")
                     return
             
+            # Armazenar a escolha do usuário
+            self.manter_evidencias = self.manter_evidencias_var.get()
+            
             self.template_path = self.template_var.get()
             self.output_dir = self.dir_var.get()
             self.evidence_dir = self.dir_var.get()
@@ -174,8 +205,22 @@ class GravadorDocx:
               
             self.iniciar_gravacao()
         
-        ttk.Button(btn_frame, text="Iniciar Gravação", command=iniciar_com_config).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancelar", command=config_window.destroy).pack(side=tk.LEFT, padx=5)
+        # Centralizar os botões horizontalmente
+        button_container = ttk.Frame(btn_frame)
+        button_container.pack(expand=True)
+        
+        ttk.Button(button_container, text="Iniciar Gravação", command=iniciar_com_config).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_container, text="Cancelar", command=config_window.destroy).pack(side=tk.LEFT, padx=10)
+        
+        # Forçar atualização da interface e ajustar tamanho se necessário
+        config_window.update_idletasks()
+        
+        # Se a janela for muito grande para a tela, ajustar
+        screen_width = config_window.winfo_screenwidth()
+        screen_height = config_window.winfo_screenheight()
+        
+        if config_window.winfo_height() > screen_height:
+            config_window.geometry(f"500x{screen_height-100}")
         
         root.wait_window(config_window)
         return self.template_path is not None and self.output_dir is not None
@@ -634,13 +679,38 @@ class GravadorDocx:
         
         try:
             self.doc.save(caminho_save)
-            messagebox.showinfo("Concluído", f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}")
             
-            # EXCLUIR ARQUIVO JSON DE METADADOS (evidencias_metadata.json)
+            # VERIFICAR SE DEVE EXCLUIR AS EVIDÊNCIAS (com valor padrão True se não definido)
+            manter = self.manter_evidencias if self.manter_evidencias is not None else True
+            
+            if not manter:
+                # Excluir todos os arquivos de print
+                prints_excluidos = 0
+                for caminho_print in self.prints:
+                    try:
+                        if os.path.exists(caminho_print):
+                            os.remove(caminho_print)
+                            prints_excluidos += 1
+                            print(f"Print excluído: {caminho_print}")
+                    except Exception as e:
+                        print(f"Erro ao excluir print {caminho_print}: {e}")
+                
+                mensagem_exclusao = f"\n\nExclusão realizada:\n- {prints_excluidos} arquivos de evidência excluídos"
+            else:
+                mensagem_exclusao = "\n\nArquivos de evidência mantidos na pasta."
+            
+            # SEMPRE EXCLUIR O ARQUIVO DE METADADOS, SE EXISTIR
             if self.metadata_path and os.path.exists(self.metadata_path):
-                os.remove(self.metadata_path)
+                try:
+                    os.remove(self.metadata_path)
+                    print(f"Metadata excluído: {self.metadata_path}")
+                except Exception as e:
+                    print(f"Erro ao excluir metadata: {e}")
             
-            # Abre a pasta
+            messagebox.showinfo("Concluído", 
+                              f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}{mensagem_exclusao}")
+            
+            # Abre a pasta (mostra apenas o DOCX se as evidências foram excluídas)
             if os.name == 'nt':
                 os.startfile(self.output_dir)
             elif os.name == 'posix':
@@ -1081,7 +1151,7 @@ def finalizar():
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("PrintF - Capturar Evidências")
-    root.geometry("400x280")
+    root.geometry("500x400")
 
     tk.Label(root, text="📷 PrintF - Capturar Evidências", font=("Arial", 16, "bold")).pack(pady=10)
     tk.Button(root, text="▶ Iniciar Gravação (F8)", command=lambda: root.after(0, iniciar), width=30).pack(pady=5)
