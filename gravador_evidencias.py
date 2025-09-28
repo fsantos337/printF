@@ -15,6 +15,122 @@ import screeninfo
 import glob
 import json
 import uuid
+import time
+import ctypes
+from ctypes import wintypes, byref
+
+# 🔥 CONTROLE AUTOMÁTICO DA BARRA DE TAREFAS
+try:
+    import win32gui
+    import win32con
+    WIN32_AVAILABLE = True
+except ImportError:
+    win32gui = None
+    win32con = None
+    WIN32_AVAILABLE = False
+
+# Constantes do Windows para configuração da barra de tarefas
+ABM_GETTASKBARPOS = 0x00000005
+ABM_SETSTATE = 0x0000000A
+ABS_AUTOHIDE = 0x0000001
+ABS_ALWAYSONTOP = 0x0000002
+
+class APPBARDATA(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("hWnd", wintypes.HWND),
+        ("uCallbackMessage", wintypes.UINT),
+        ("uEdge", wintypes.UINT),
+        ("rc", wintypes.RECT),
+        ("lParam", wintypes.LPARAM),
+    ]
+
+def configurar_barra_autohide(habilitar=True):
+    """Configura a barra de tarefas para ocultar automaticamente"""
+    if not WIN32_AVAILABLE:
+        return False
+        
+    try:
+        # Encontra a janela da barra de tarefas
+        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
+        if not hwnd:
+            return False
+            
+        # Prepara a estrutura APPBARDATA
+        abd = APPBARDATA()
+        abd.cbSize = ctypes.sizeof(APPBARDATA)
+        abd.hWnd = hwnd
+        
+        # Configura para ocultar automaticamente ou não
+        if habilitar:
+            estado = ABS_AUTOHIDE
+        else:
+            estado = ABS_ALWAYSONTOP
+            
+        # Aplica a configuração
+        resultado = ctypes.windll.shell32.SHAppBarMessage(ABM_SETSTATE, byref(abd), estado)
+        return resultado != 0
+        
+    except Exception as e:
+        print(f"Erro ao configurar barra automática: {e}")
+        return False
+
+def obter_configuracao_barra_atual():
+    """Obtém a configuração atual da barra de tarefas"""
+    if not WIN32_AVAILABLE:
+        return None
+        
+    try:
+        # Usa win32gui para verificar se a barra está configurada para auto-ocultar
+        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
+        if hwnd:
+            # Verifica o estilo da janela para detectar auto-ocultação
+            estilo = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+            if estilo & win32con.WS_EX_TOOLWINDOW:
+                return "autohide"
+            return "always_visible"
+    except Exception as e:
+        print(f"Erro ao obter configuração da barra: {e}")
+    
+    return None
+
+def restaurar_configuracao_barra():
+    """Restaura a configuração original da barra de tarefas"""
+    if not hasattr(restaurar_configuracao_barra, 'config_original'):
+        return
+        
+    try:
+        if restaurar_configuracao_barra.config_original == "autohide":
+            configurar_barra_autohide(True)
+        else:
+            configurar_barra_autohide(False)
+        print("Configuração da barra restaurada")
+    except Exception as e:
+        print(f"Erro ao restaurar barra: {e}")
+
+def ocultar_barra_tarefas():
+    """Oculta a barra de tarefas temporariamente"""
+    if not WIN32_AVAILABLE:
+        return
+        
+    try:
+        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
+        if hwnd:
+            win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
+    except Exception as e:
+        print(f"Erro ao ocultar barra: {e}")
+
+def mostrar_barra_tarefas():
+    """Mostra a barra de tarefas novamente"""
+    if not WIN32_AVAILABLE:
+        return
+        
+    try:
+        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
+        if hwnd:
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+    except Exception as e:
+        print(f"Erro ao mostrar barra: {e}")
 
 # ------------------ Gravador e Docx ------------------
 class GravadorDocx:
@@ -23,7 +139,7 @@ class GravadorDocx:
         self.pausado = False
         self.output_dir = os.getcwd()
         self.listener_mouse = None
-        self.prints = []            # lista de caminhos das imagens salvas
+        self.prints = []
         self.doc = None
         self.evidencia_count = 0
         self.demanda = ""
@@ -41,7 +157,10 @@ class GravadorDocx:
         self.current_img_label = None
         self.current_img_tk = None
         self.comment_entry = None
-        self.manter_evidencias = None  # Será definido pela escolha do usuário
+        self.manter_evidencias = None
+        self.barra_configurada = False  # 🔥 NOVO: Controla se a barra foi configurada
+        self.barra_visivel_check = None  # 🔥 NOVO: Controle do verificador de barra
+        self.verificando_barra = False   # 🔥 NOVO: Flag para controle
 
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
@@ -162,16 +281,22 @@ class GravadorDocx:
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
         
         def iniciar_com_config():
-            if not self.template_var.get() or not self.dir_var.get():
+            # ⚠️ CORREÇÃO: Acessar as variáveis através da instância global 'gravador'
+            if not gravador.template_var.get() or not gravador.dir_var.get():
                 messagebox.showerror("Erro", "Por favor, selecione o template e o diretório de destino.")
                 return
             
-            if not os.path.exists(self.template_var.get()):
+            if not os.path.exists(gravador.template_var.get()):
                 messagebox.showerror("Erro", "O arquivo de template selecionado não existe.")
                 return
             
+            # 🔥 VERIFICAÇÃO ADICIONAL: Limpar qualquer estado residual
+            gravador.gravando = False
+            gravador.pausado = False
+            gravador.prints = []
+            
             # VALIDAÇÃO SIMPLES: BLOQUEAR APENAS SE TIVER ARQUIVOS
-            dir_path = self.dir_var.get()
+            dir_path = gravador.dir_var.get()
             
             if os.path.exists(dir_path):
                 try:
@@ -196,14 +321,14 @@ class GravadorDocx:
                     return
             
             # Armazenar a escolha do usuário
-            self.manter_evidencias = self.manter_evidencias_var.get()
+            gravador.manter_evidencias = gravador.manter_evidencias_var.get()
             
-            self.template_path = self.template_var.get()
-            self.output_dir = self.dir_var.get()
-            self.evidence_dir = self.dir_var.get()
+            gravador.template_path = gravador.template_var.get()
+            gravador.output_dir = gravador.dir_var.get()
+            gravador.evidence_dir = gravador.dir_var.get()
             config_window.destroy()            
               
-            self.iniciar_gravacao()
+            gravador.iniciar_gravacao()
         
         # Centralizar os botões horizontalmente
         button_container = ttk.Frame(btn_frame)
@@ -224,23 +349,25 @@ class GravadorDocx:
         
         root.wait_window(config_window)
         return self.template_path is not None and self.output_dir is not None
-
+        
     # ---------- Captura de telas ----------
     def iniciar_gravacao(self):
+        # ------ RESET CRÍTICO: Limpar estado da gravação anterior ------
+        self.gravando = False
+        self.pausado = False
+        self.prints = []
+        self.evidencia_count = 0
+        self.current_index = 0
+        self.metadata = {"evidencias": [], "proximo_id": 1}
+        self.barra_configurada = False
+        
         os.makedirs(self.output_dir, exist_ok=True)
 
         # Inicializar metadados
         self.metadata_path = os.path.join(self.output_dir, "evidencias_metadata.json")
-        if os.path.exists(self.metadata_path):
-            try:
-                with open(self.metadata_path, 'r', encoding='utf-8') as f:
-                    self.metadata = json.load(f)
-            except:
-                self.metadata = {"evidencias": [], "proximo_id": 1}
-        else:
-            self.metadata = {"evidencias": [], "proximo_id": 1}
+        self.metadata = {"evidencias": [], "proximo_id": 1}
 
-        # Carrega o template
+        # 🔥 IMPORTANTE: Criar NOVO documento Word
         try:
             if os.path.exists(self.template_path):
                 self.doc = Document(self.template_path)
@@ -254,38 +381,175 @@ class GravadorDocx:
             messagebox.showerror("Erro", f"Erro ao carregar template: {str(e)}")
             self.doc = Document()
             self.using_template = False
+            
+        messagebox.showinfo("Gravação", "▶ Clique em OK para começar a gravar!")
+        
+        # 🔥 CONFIGURAR BARRA DE TAREFAS - APÓS O USUÁRIO CLICAR EM OK
+        if WIN32_AVAILABLE:
+            try:
+                # Salva configuração atual ANTES de qualquer alteração
+                restaurar_configuracao_barra.config_original = obter_configuracao_barra_atual()
+                print(f"Configuração original da barra: {restaurar_configuracao_barra.config_original}")
+                
+                # PRIMEIRO: Configurar para auto-ocultar
+                if configurar_barra_autohide(True):
+                    self.barra_configurada = True
+                    print("Barra configurada para auto-ocultar")
+                    
+                    # SEGUNDO: Ocultar manualmente também (redundância para garantir)
+                    ocultar_barra_tarefas()
+                    
+                    # 🔥 AUMENTAR DELAY e forçar atualização
+                    time.sleep(3)  # Delay aumentado para 3 segundos
+                    
+                    # 🔥 NOVO: Forçar refresh do Windows
+                    ctypes.windll.user32.UpdatePerUserSystemParameters(1)
+                    
+                else:
+                    print("Não foi possível configurar auto-ocultar, usando ocultação manual")
+                    # Fallback: ocultar manualmente
+                    ocultar_barra_tarefas()
+                    self.barra_configurada = True
+            except Exception as e:
+                print(f"Erro ao configurar barra: {e}")
+                # Fallback em caso de erro
+                try:
+                    ocultar_barra_tarefas()
+                    self.barra_configurada = True
+                except:
+                    print("Não foi possível ocultar a barra")
 
-        messagebox.showinfo("Gravação", "▶ Gravação iniciada! Clique OK para começar")
+        # 🔥 NOVO: Iniciar verificação contínua da barra
+        self.iniciar_verificacao_barra()
+
         self.gravando = True
         self.pausado = False
 
         minimizar_janela()
-
+        
+        # 🔥 Parar listener anterior se existir
+        if self.listener_mouse:
+            self.listener_mouse.stop()
+        
         self.listener_mouse = mouse.Listener(on_click=self.on_click)
-        self.listener_mouse.start()
+        self.listener_mouse.start()        
+
+    def iniciar_verificacao_barra(self):
+        """Inicia a verificação periódica da barra de tarefas"""
+        if not WIN32_AVAILABLE or self.verificando_barra:
+            return
+        
+        self.verificando_barra = True
+        self.verificar_barra_visivel()
+
+    def parar_verificacao_barra(self):
+        """Para a verificação periódica da barra"""
+        self.verificando_barra = False
+        if self.barra_visivel_check:
+            root.after_cancel(self.barra_visivel_check)
+            self.barra_visivel_check = None
+
+    def verificar_barra_visivel(self):
+        """Verifica se a barra está visível e a oculta se necessário"""
+        if not self.verificando_barra or not self.gravando or self.pausado:
+            return
+
+        try:
+            if WIN32_AVAILABLE:
+                hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
+                if hwnd:
+                    # Verifica se a janela da barra está visível
+                    if win32gui.IsWindowVisible(hwnd):
+                        print("Barra de tarefas detectada como visível - ocultando")
+                        ocultar_barra_tarefas()
+                        
+                        # 🔥 FORÇAR: Configurar auto-ocultar novamente para garantir
+                        configurar_barra_autohide(True)
+                        
+        except Exception as e:
+            print(f"Erro ao verificar barra: {e}")
+
+        # 🔥 Agendar próxima verificação (a cada 1 segundo)
+        if self.verificando_barra:
+            self.barra_visivel_check = root.after(1000, self.verificar_barra_visivel)
 
     def pausar(self):
         if self.gravando and not self.pausado:
             self.pausado = True
+            # 🔥 NOVO: Parar verificação da barra quando pausado
+            self.parar_verificacao_barra()
             messagebox.showinfo("Gravação", "⏸ Gravação pausada!")
 
     def retomar(self):
         if self.gravando and self.pausado:            
-            messagebox.showinfo("Gravação", "▶ Gravação retomada!")
             self.pausado = False
+            # 🔥 NOVO: Reiniciar verificação da barra ao retomar
+            self.iniciar_verificacao_barra()
+            messagebox.showinfo("Gravação", "▶ Gravação retomada!")
+
 
     def finalizar(self):
         if self.gravando:
             self.gravando = False
+            # 🔥 NOVO: Parar verificação da barra ao finalizar
+            self.parar_verificacao_barra()
+            
             if self.listener_mouse:
                 self.listener_mouse.stop()
                 self.listener_mouse = None
+            
+            # 🔥 RESTAURAR CONFIGURAÇÃO ORIGINAL DA BARRA - MAIS ROBUSTO
+            if WIN32_AVAILABLE and self.barra_configurada:
+                try:
+                    time.sleep(2)  # 🔥 AUMENTAR delay antes de restaurar
+                    
+                    # PRIMEIRO: Mostrar a barra
+                    mostrar_barra_tarefas()
+                    time.sleep(1)
+                    
+                    # SEGUNDO: Restaurar configuração original
+                    restaurar_configuracao_barra()
+                    
+                    # TERCEIRO: Forçar refresh do Windows
+                    ctypes.windll.user32.UpdatePerUserSystemParameters(1)
+                    
+                    self.barra_configurada = False
+                    print("Configuração da barra completamente restaurada")
+                except Exception as e:
+                    print(f"Erro ao restaurar barra: {e}")
+                    # Fallback: garantir que a barra esteja visível
+                    try:
+                        mostrar_barra_tarefas()
+                    except:
+                        pass
+            
             messagebox.showinfo("Gravação", "⏹ Gravação finalizada!")
             if self.prints:
                 self.gerar_docx()
+            else:
+                # 🔥 ADICIONADO: Mensagem se não houver evidências
+                messagebox.showinfo("Info", "Nenhuma evidência capturada.")
 
     def on_click(self, x, y, button, pressed):
         if pressed and self.gravando and not self.pausado:
+            # 🔥 VERIFICAÇÃO INTELIGENTE: Só oculta se o clique for na área da barra
+            clique_na_barra = False
+            
+            if WIN32_AVAILABLE:
+                try:
+                    hwnd_barra = win32gui.FindWindow("Shell_TrayWnd", None)
+                    if hwnd_barra:
+                        rect_barra = win32gui.GetWindowRect(hwnd_barra)
+                        # Verifica se o clique está dentro da área da barra
+                        if (rect_barra[0] <= x <= rect_barra[2] and 
+                            rect_barra[1] <= y <= rect_barra[3]):
+                            clique_na_barra = True
+                            print("Clique na barra detectado - ocultando temporariamente")
+                            ocultar_barra_tarefas()
+                            time.sleep(0.3)  # Pequeno delay para garantir que some
+                except Exception as e:
+                    print(f"Erro ao verificar barra: {e}")
+            
             # Gerar nome único com ID sequencial e timestamp
             evidencia_id = self.metadata["proximo_id"]
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -308,10 +572,17 @@ class GravadorDocx:
                     final_img.convert("RGB").save(caminho_print, "PNG")
                     
                     # Adicionar aos metadados
+                    timestamp_captura = datetime.now().isoformat()
+                    timestamp_texto = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+
                     self.metadata["evidencias"].append({
                         "id": evidencia_id,
                         "arquivo": nome_arquivo,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": timestamp_captura,
+                        "timestamp_texto": timestamp_texto,
+                        "timestamp_posicao": {"x": 0.85, "y": 0.90},
+                        "timestamp_cor": "#FF0000",
+                        "timestamp_tamanho": 24,
                         "excluida": False,
                         "comentario": ""
                     })
@@ -341,6 +612,12 @@ class GravadorDocx:
                     self.prints.append(caminho_print)
                 except Exception as fallback_error:
                     print(f"Erro no fallback: {fallback_error}")
+            finally:
+                # 🔥 MOSTRAR barra de tarefas APENAS se foi ocultada durante este clique
+                if clique_na_barra:
+                    time.sleep(0.1)
+                    # 🔥 CORREÇÃO: Não mostrar a barra aqui - deixar a verificação contínua cuidar disso
+                    # mostrar_barra_tarefas()  # REMOVIDO
 
     def capture_monitor_screenshot(self, x, y):
         try:
@@ -511,8 +788,41 @@ class GravadorDocx:
         caminho_print = self.prints[self.current_index]
         
         try:
-            # Carrega e exibe a imagem com tamanho maior
-            img = Image.open(caminho_print)
+            # Carrega a imagem original
+            img = Image.open(caminho_print).convert("RGBA")
+            
+            # Obter os metadados do timestamp para esta evidência
+            nome_arquivo = os.path.basename(caminho_print)
+            timestamp_data = self.obter_timestamp_metadata(nome_arquivo)
+            
+            # Aplicar o timestamp na imagem para exibição (em memória)
+            if timestamp_data:
+                draw = ImageDraw.Draw(img)
+                
+                # Calcular posição em pixels
+                img_width, img_height = img.size
+                pos_x = int(timestamp_data["x"] * img_width)
+                pos_y = int(timestamp_data["y"] * img_height)
+                
+                # Configurações do texto - AUMENTAR TAMANHO DA FONTE
+                texto = timestamp_data["texto"]
+                cor = timestamp_data["cor"]
+                tamanho = 24  # Aumentado de 16 para 24
+                
+                # Usar fonte
+                try:
+                    font = ImageFont.truetype("arial.ttf", tamanho)
+                except:
+                    font = ImageFont.load_default()
+                
+                # Adicionar contorno preto para melhor legibilidade
+                draw.text((pos_x-1, pos_y-1), texto, fill='black', font=font)
+                draw.text((pos_x+1, pos_y-1), texto, fill='black', font=font)
+                draw.text((pos_x-1, pos_y+1), texto, fill='black', font=font)
+                draw.text((pos_x+1, pos_y+1), texto, fill='black', font=font)
+                
+                # Texto principal vermelho
+                draw.text((pos_x, pos_y), texto, fill=cor, font=font)
             
             # Obter o tamanho da área disponível para a imagem
             self.popup.update()
@@ -528,7 +838,6 @@ class GravadorDocx:
             self.pos_label.config(text=f"Evidência {self.current_index + 1} de {len(self.prints)}")
             
             # Carrega comentário salvo
-            nome_arquivo = os.path.basename(caminho_print)
             comentario = self.obter_comentario(nome_arquivo)
             self.comment_entry.delete(0, tk.END)
             self.comment_entry.insert(0, comentario)
@@ -542,6 +851,61 @@ class GravadorDocx:
             if evidencia["arquivo"] == nome_arquivo:
                 return evidencia.get("comentario", "")
         return ""
+
+    def obter_timestamp_metadata(self, nome_arquivo):
+        """Obtém os metadados do timestamp para um arquivo"""
+        for evidencia in self.metadata["evidencias"]:
+            if evidencia["arquivo"] == nome_arquivo:
+                return {
+                    "x": evidencia["timestamp_posicao"]["x"],
+                    "y": evidencia["timestamp_posicao"]["y"],
+                    "cor": evidencia["timestamp_cor"],
+                    "tamanho": evidencia["timestamp_tamanho"],
+                    "texto": evidencia["timestamp_texto"]
+                }
+        return None
+
+    def atualizar_posicao_timestamp(self, nome_arquivo, nova_posicao):
+        """Atualiza a posição do timestamp nos metadados"""
+        for evidencia in self.metadata["evidencias"]:
+            if evidencia["arquivo"] == nome_arquivo:
+                evidencia["timestamp_posicao"]["x"] = nova_posicao[0]
+                evidencia["timestamp_posicao"]["y"] = nova_posicao[1]
+                self._salvar_metadata()
+                break
+
+    def aplicar_timestamp_na_imagem(self, caminho_imagem, evidencia_meta):
+        """Aplica o timestamp na imagem conforme posição salva"""
+        img = Image.open(caminho_imagem).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+        
+        # Calcular posição em pixels
+        img_width, img_height = img.size
+        pos_x = int(evidencia_meta["timestamp_posicao"]["x"] * img_width)
+        pos_y = int(evidencia_meta["timestamp_posicao"]["y"] * img_height)
+        
+        # Configurações do texto - AUMENTAR TAMANHO DA FONTE
+        texto = evidencia_meta["timestamp_texto"]
+        cor = evidencia_meta["timestamp_cor"]
+        tamanho = 24  # Aumentado de 16 para 24
+        
+        # Usar fonte proporcional
+        try:
+            font = ImageFont.truetype("arial.ttf", tamanho)
+        except:
+            font = ImageFont.load_default()
+        
+        # Adicionar contorno preto para melhor legibilidade
+        draw.text((pos_x-1, pos_y-1), texto, fill='black', font=font)
+        draw.text((pos_x+1, pos_y-1), texto, fill='black', font=font)
+        draw.text((pos_x-1, pos_y+1), texto, fill='black', font=font)
+        draw.text((pos_x+1, pos_y+1), texto, fill='black', font=font)
+        
+        # Texto principal vermelho
+        draw.text((pos_x, pos_y), texto, fill=cor, font=font)
+        
+        # Salvar a imagem (sobrescreve a original)
+        img.save(caminho_imagem)
 
     def salvar_comentario(self):
         """Salva o comentário da evidência atual"""
@@ -648,6 +1012,17 @@ class GravadorDocx:
     def finalizar_processamento(self):
         """Processa todas as evidências e gera o DOCX"""
         self.salvar_comentario()  # Salva automaticamente antes de navegar
+
+        # Aplicar timestamp em todas as evidências
+        for caminho_print in self.prints:
+            nome_arquivo = os.path.basename(caminho_print)
+            # Encontrar os metadados da evidência
+            for evidencia in self.metadata["evidencias"]:
+                if evidencia["arquivo"] == nome_arquivo:
+                    self.aplicar_timestamp_na_imagem(caminho_print, evidencia)
+                    break
+
+        # Agora adicionar as imagens ao DOCX
         for caminho_print in self.prints:
             nome_arquivo = os.path.basename(caminho_print)
             comentario = self.obter_comentario(nome_arquivo)
@@ -662,9 +1037,45 @@ class GravadorDocx:
 
     def cancelar_processamento(self):
         self.salvar_comentario()  # Salva automaticamente ao fechar
-        if messagebox.askyesno("Confirmar", "Deseja cancelar o processamento?"):
-            if self.popup:
-                self.popup.destroy()
+        if messagebox.askyesno("Confirmar Cancelamento", 
+                              "Tem certeza que deseja cancelar o processamento?\n\n"
+                              "⚠️ TODOS os arquivos de print serão EXCLUÍDOS permanentemente!"):
+            
+            try:
+                # Excluir todos os arquivos de print
+                prints_excluidos = 0
+                for caminho_print in self.prints:
+                    try:
+                        if os.path.exists(caminho_print):
+                            os.remove(caminho_print)
+                            prints_excluidos += 1
+                            print(f"Print excluído: {caminho_print}")
+                    except Exception as e:
+                        print(f"Erro ao excluir print {caminho_print}: {e}")
+
+                # Excluir arquivo de metadados
+                if self.metadata_path and os.path.exists(self.metadata_path):
+                    try:
+                        os.remove(self.metadata_path)
+                        print(f"Metadata excluído: {self.metadata_path}")
+                    except Exception as e:
+                        print(f"Erro ao excluir metadata: {e}")
+
+                # Mostrar mensagem de confirmação
+                messagebox.showinfo(
+                    "Cancelado", 
+                    f"Processamento cancelado!\n\n"
+                    f"Foram excluídos:\n"
+                    f"• {prints_excluidos} arquivos de print\n"
+                    f"• Arquivo de metadados"
+                )
+
+                # Fechar a janela de navegação
+                if self.popup:
+                    self.popup.destroy()
+
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao excluir arquivos: {str(e)}")
 
     def salvar_docx(self):
         if self.template_path:
@@ -678,13 +1089,22 @@ class GravadorDocx:
         caminho_save = os.path.join(self.output_dir, nome_arquivo)
         
         try:
+            # Salva o documento
             self.doc.save(caminho_save)
-            
-            # VERIFICAR SE DEVE EXCLUIR AS EVIDÊNCIAS (com valor padrão True se não definido)
+
+            # 🔥 CORREÇÃO: SEMPRE excluir o arquivo de metadados (controle interno)
+            if self.metadata_path and os.path.exists(self.metadata_path):
+                try:
+                    os.remove(self.metadata_path)
+                    print(f"Metadata excluído: {self.metadata_path}")
+                except Exception as e:
+                    print(f"Erro ao excluir metadata: {e}")
+
+            # Verificar se deve excluir os prints (apenas os arquivos de imagem)
             manter = self.manter_evidencias if self.manter_evidencias is not None else True
-            
+
             if not manter:
-                # Excluir todos os arquivos de print
+                # Excluir todos os arquivos de print (apenas as imagens)
                 prints_excluidos = 0
                 for caminho_print in self.prints:
                     try:
@@ -698,19 +1118,14 @@ class GravadorDocx:
                 mensagem_exclusao = f"\n\nExclusão realizada:\n- {prints_excluidos} arquivos de evidência excluídos"
             else:
                 mensagem_exclusao = "\n\nArquivos de evidência mantidos na pasta."
+
+            # Mensagem de sucesso
+            messagebox.showinfo(
+                "Concluído", 
+                f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}{mensagem_exclusao}"
+            )
             
-            # SEMPRE EXCLUIR O ARQUIVO DE METADADOS, SE EXISTIR
-            if self.metadata_path and os.path.exists(self.metadata_path):
-                try:
-                    os.remove(self.metadata_path)
-                    print(f"Metadata excluído: {self.metadata_path}")
-                except Exception as e:
-                    print(f"Erro ao excluir metadata: {e}")
-            
-            messagebox.showinfo("Concluído", 
-                              f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}{mensagem_exclusao}")
-            
-            # Abre a pasta (mostra apenas o DOCX se as evidências foram excluídas)
+            # Abrir a pasta onde foi salvo
             if os.name == 'nt':
                 os.startfile(self.output_dir)
             elif os.name == 'posix':
@@ -741,8 +1156,27 @@ class GravadorDocx:
         canvas_frame = tk.Frame(main_frame)
         canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # Carrega a imagem original
-        self.original_img = Image.open(caminho_print).convert("RGBA")
+        # 🔥 CORREÇÃO: SEMPRE carregar a imagem ORIGINAL (sem timestamp)
+        img_original = Image.open(caminho_print).convert("RGBA")
+        
+        # Obter metadados do timestamp
+        nome_arquivo = os.path.basename(caminho_print)
+        timestamp_data = self.obter_timestamp_metadata(nome_arquivo)
+        
+        # 🔥 CORREÇÃO: Inicializar a posição do timestamp a partir dos metadados
+        if timestamp_data:
+            self.timestamp_pos = (timestamp_data["x"], timestamp_data["y"])
+        else:
+            # Posição padrão se não houver metadados
+            self.timestamp_pos = (0.85, 0.90)
+            # Criar dados básicos se não existirem
+            timestamp_data = {
+                "texto": datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                "cor": "#FF0000"
+            }
+        
+        # Usar a imagem original como base para edição
+        self.original_img = img_original
         img_w, img_h = self.original_img.size
         
         # Calcula o fator de escala para exibição
@@ -751,42 +1185,58 @@ class GravadorDocx:
         self.scale_factor = scale
         disp_w, disp_h = int(img_w * scale), int(img_h * scale)
         
-        # Cria cópia da imagem para edição
+        # Cria cópia da imagem para edição (SEM timestamp)
         self.editing_img = self.original_img.copy()
         self.display_img = self.editing_img.resize((disp_w, disp_h), Image.LANCZOS)
 
         # Variáveis para controle
         self.current_tk_img = ImageTk.PhotoImage(self.display_img)
         self.elements = []  # Lista de elementos desenhados
-        self.undo_stack = []  # PILHA PARA DESFAZER AÇÕES - NOVO
+        self.undo_stack = []  # PILHA PARA DESFAZER AÇÕES
         self.temp_element = None
+        
+        # 🔥 CORREÇÃO: Controle do timestamp - sempre usar a posição dos metadados
+        self.moving_timestamp = False
+        self.timestamp_drag_data = {"x": 0, "y": 0, "item": None}
+        self.last_mouse_pos = None
         
         # Canvas para a imagem
         self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg="gray")
         self.canvas.pack(padx=5, pady=5)
         self.canvas_img = self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
         
-        # Variáveis de controle - COR PADRÃO VERMELHA
-        tool_var = tk.StringVar(value="rectangle")  # RETÂNGULO COMO PADRÃO
-        color_var = tk.StringVar(value="#FF0000")   # VERMELHO COMO PADRÃO
+        # Variáveis de controle
+        tool_var = tk.StringVar(value="rectangle")
+        color_var = tk.StringVar(value="#FF0000")
         width_var = tk.IntVar(value=3)
         
-        # Ferramentas - SUBSTITUINDO RADIOBUTTONS POR ÍCONES EMOJI
-        tk.Label(tools_frame, text="Ferramenta:").pack(side=tk.LEFT, padx=5)
+        # Variável para controle do modo mover timestamp
+        move_timestamp_var = tk.BooleanVar(value=False)
         
-        # Frame para os botões de ícone
+        def toggle_move_timestamp():
+            """Ativa/desativa o modo de mover timestamp"""
+            current_state = move_timestamp_var.get()
+            move_timestamp_var.set(not current_state)
+            
+            if move_timestamp_var.get():
+                # Ativa modo mover timestamp
+                move_btn.config(relief=tk.SUNKEN, bg="#4CAF50", fg="white", 
+                              text="📅 MODO MOVER ATIVO")
+                self.canvas.config(cursor="hand2")
+            else:
+                # Desativa modo mover timestamp
+                move_btn.config(relief=tk.RAISED, bg="SystemButtonFace", fg="black",
+                              text="📅 Mover Data/Hora")
+                self.canvas.config(cursor="cross")
+            
+            refresh_display()
+
+        # FERRAMENTAS DE DESENHO
+        tk.Label(tools_frame, text="Ferramentas:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        
         icon_frame = tk.Frame(tools_frame)
         icon_frame.pack(side=tk.LEFT, padx=5)
         
-        # Ícones emoji para cada ferramenta
-        tool_icons = {
-            "rectangle": "⬜",   # Retângulo
-            "circle": "🔴",      # Círculo  
-            "arrow": "👉",       # Seta - Mão apontando
-            "text": "🆎"         # Texto - Botão AB
-        }
-
-        # Função para criar botões com estilo consistente
         def criar_botao_ferramenta(parent, texto, valor, variavel):
             btn = tk.Radiobutton(parent, text=texto, font=("Arial", 12), 
                                variable=variavel, value=valor, indicatoron=0, 
@@ -794,37 +1244,42 @@ class GravadorDocx:
                                cursor="hand2")
             return btn
 
-        # Cria os botões para cada ferramenta
+        # Criar botões para cada ferramenta
+        tool_icons = {
+            "rectangle": "⬜",   # Retângulo
+            "circle": "🔴",      # Círculo  
+            "arrow": "👉",       # Seta
+            "text": "🆎"         # Texto
+        }
+
         for tool_value, icon in tool_icons.items():
             btn = criar_botao_ferramenta(icon_frame, icon, tool_value, tool_var)
             btn.pack(side=tk.LEFT, padx=2)
 
-        # Destacar o botão do retângulo (selecionado por padrão)
+        # Destacar o botão selecionado inicialmente
         for widget in icon_frame.winfo_children():
             if isinstance(widget, tk.Radiobutton) and widget.cget("value") == "rectangle":
-                widget.config(relief=tk.SUNKEN, bg="#e3f2fd")  # Azul claro para selecionado
+                widget.config(relief=tk.SUNKEN, bg="#e3f2fd")
                 break
 
-        # Função para atualizar a aparência dos botões
         def update_button_appearance(*args):
             selected_tool = tool_var.get()
             for widget in icon_frame.winfo_children():
                 if isinstance(widget, tk.Radiobutton):
                     if widget.cget("value") == selected_tool:
-                        widget.config(relief=tk.SUNKEN, bg="#e3f2fd")  # Selecionado
+                        widget.config(relief=tk.SUNKEN, bg="#e3f2fd")
                     else:
-                        widget.config(relief=tk.RAISED, bg="SystemButtonFace")  # Normal
+                        widget.config(relief=tk.RAISED, bg="SystemButtonFace")
 
         tool_var.trace("w", update_button_appearance)
         
-        # Controles de cor and espessura - APENAS CORES ESSENCIAIS
+        # Controles de cor e espessura
         color_frame = tk.Frame(tools_frame)
         color_frame.pack(side=tk.LEFT, padx=20)
         
         tk.Label(color_frame, text="Cor:").pack(side=tk.LEFT)
         
-        # Paleta de cores reduzida (apenas as essenciais)
-        colors = ["#FF0000", "#00FF00", "#FFFF00", "#000000", "#FFFFFF"]
+        colors = ["#FF0000", "#00FF00", "#FFFF00", "#0000FF", "#000000", "#FFFFFF"]
         color_buttons_frame = tk.Frame(color_frame)
         color_buttons_frame.pack(side=tk.LEFT, padx=5)
         
@@ -833,16 +1288,13 @@ class GravadorDocx:
                            command=lambda c=color: self.set_color(color_var, c, color_preview))
             btn.pack(side=tk.LEFT, padx=1)
         
-        # Botão para cor personalizada
         custom_btn = tk.Button(color_frame, text="Personalizada", 
                               command=lambda: self.choose_custom_color(editor, color_var, color_preview))
         custom_btn.pack(side=tk.LEFT, padx=5)
         
-        # Preview de cor
         color_preview = tk.Frame(color_frame, width=30, height=20, bg=color_var.get())
         color_preview.pack(side=tk.LEFT, padx=5)
         
-        # Controle de espessura
         width_frame = tk.Frame(tools_frame)
         width_frame.pack(side=tk.LEFT, padx=20)
         
@@ -850,10 +1302,8 @@ class GravadorDocx:
         tk.Scale(width_frame, from_=1, to=10, variable=width_var, orient=tk.HORIZONTAL, 
                 length=100, showvalue=1).pack(side=tk.LEFT, padx=5)
         
-        # BOTÃO DESFAZER - NOVO
         def undo_action():
-            if self.elements:  # Se houver elementos para desfazer
-                # Remove o último elemento e adiciona à pilha de desfazer
+            if self.elements:
                 removed_element = self.elements.pop()
                 self.undo_stack.append(removed_element)
                 refresh_display()
@@ -861,14 +1311,38 @@ class GravadorDocx:
         undo_btn = tk.Button(tools_frame, text="↩️ Desfazer (Ctrl+Z)", command=undo_action)
         undo_btn.pack(side=tk.LEFT, padx=20)
         
-        # Variáveis para desenho
-        start_xy = {"x": None, "y": None}
-        
+        # 🔥 CORREÇÃO: FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO DA TELA
         def refresh_display():
-            # Redesenha todos os elementos
+            """Redesenha toda a cena: imagem base + timestamp visual + elementos"""
+            # Limpa o canvas
             self.canvas.delete("all")
+            
+            # Redesenha a imagem ORIGINAL (sem timestamp)
+            self.display_img = self.editing_img.resize((disp_w, disp_h), Image.LANCZOS)
+            self.current_tk_img = ImageTk.PhotoImage(self.display_img)
             self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
             
+            # 🔥 CORREÇÃO: Desenha o timestamp como elemento visual no canvas
+            if self.timestamp_pos:
+                img_width, img_height = self.original_img.size
+                pos_x = int(self.timestamp_pos[0] * img_width * self.scale_factor)
+                pos_y = int(self.timestamp_pos[1] * img_height * self.scale_factor)
+                
+                texto = timestamp_data["texto"] if timestamp_data else datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                cor = timestamp_data["cor"] if timestamp_data else "#FF0000"
+                tamanho = 12  # Tamanho reduzido para visualização no canvas
+                
+                # Desenha o timestamp como texto no canvas (apenas visual)
+                self.canvas.create_text(
+                    pos_x, pos_y, 
+                    text=texto, 
+                    fill=cor, 
+                    font=("Arial", tamanho, "bold"), 
+                    anchor="nw",
+                    tags="timestamp"
+                )
+            
+            # Redesenha elementos de desenho (setas, círculos, etc.)
             for element in self.elements:
                 elem_type, coords, color, width, text = element
                 scaled_coords = [int(c * self.scale_factor) for c in coords]
@@ -900,33 +1374,74 @@ class GravadorDocx:
                 elif elem_type == "arrow":
                     x1, y1, x2, y2 = scaled_coords
                     self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
-        
-        def draw_arrow_on_canvas(x1, y1, x2, y2, color, width):
-            # Desenha a linha da seta
-            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
-            
-            # Calcula o ângulo da seta
-            angle = math.atan2(y2 - y1, x2 - x1)
-            
-            # Desenha a ponta da seta (triângulo)
-            arrow_size = 15
-            x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
-            y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
-            x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
-            y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
-            
-            self.canvas.create_polygon(x2, y2, x3, y3, x4, y4, fill=color, outline=color)
+
+        # 🔥 CORREÇÃO: FUNÇÕES PARA MOVER TIMESTAMP (agora movendo apenas o elemento visual)
+        def start_move_timestamp(event):
+            if move_timestamp_var.get():
+                # Verifica se clicou perto do timestamp
+                items = self.canvas.find_overlapping(event.x-5, event.y-5, event.x+5, event.y+5)
+                timestamp_clicked = False
+                for item in items:
+                    tags = self.canvas.gettags(item)
+                    if "timestamp" in tags:
+                        timestamp_clicked = True
+                        break
+                
+                if timestamp_clicked:
+                    self.moving_timestamp = True
+                    self.timestamp_drag_data["x"] = event.x
+                    self.timestamp_drag_data["y"] = event.y
+                    self.last_mouse_pos = (event.x, event.y)
+                    self.canvas.config(cursor="fleur")
+
+        def on_motion_timestamp(event):
+            if self.moving_timestamp and move_timestamp_var.get():
+                current_mouse_pos = (event.x, event.y)
+                
+                if (abs(current_mouse_pos[0] - self.last_mouse_pos[0]) > 2 or 
+                    abs(current_mouse_pos[1] - self.last_mouse_pos[1]) > 2):
+                    
+                    dx = event.x - self.timestamp_drag_data["x"]
+                    dy = event.y - self.timestamp_drag_data["y"]
+                    
+                    img_width, img_height = self.original_img.size
+                    new_x = self.timestamp_pos[0] + (dx / self.scale_factor / img_width)
+                    new_y = self.timestamp_pos[1] + (dy / self.scale_factor / img_height)
+                    
+                    new_x = max(0.02, min(0.98, new_x))
+                    new_y = max(0.02, min(0.98, new_y))
+                    
+                    self.timestamp_pos = (new_x, new_y)
+                    refresh_display()
+                    
+                    self.timestamp_drag_data["x"] = event.x
+                    self.timestamp_drag_data["y"] = event.y
+                    self.last_mouse_pos = current_mouse_pos
+
+        def stop_move_timestamp(event):
+            if self.moving_timestamp:
+                self.moving_timestamp = False
+                if move_timestamp_var.get():
+                    self.canvas.config(cursor="hand2")
+                else:
+                    self.canvas.config(cursor="cross")
+
+        # FUNÇÕES PARA DESENHO
+        start_xy = {"x": None, "y": None}
         
         def on_button_press(event):
-            start_xy["x"], start_xy["y"] = event.x, event.y
-        
+            if move_timestamp_var.get():
+                start_move_timestamp(event)
+            else:
+                start_xy["x"], start_xy["y"] = event.x, event.y
+
         def on_motion(event):
-            if start_xy["x"] is not None:
-                # Desenho em tempo real
+            if self.moving_timestamp and move_timestamp_var.get():
+                on_motion_timestamp(event)
+            elif start_xy["x"] is not None and not move_timestamp_var.get():
                 sx, sy = start_xy["x"], start_xy["y"]
                 ex, ey = event.x, event.y
                 
-                # Converte para coordenadas da imagem original
                 ix1, iy1 = int(sx / self.scale_factor), int(sy / self.scale_factor)
                 ix2, iy2 = int(ex / self.scale_factor), int(ey / self.scale_factor)
                 
@@ -938,7 +1453,6 @@ class GravadorDocx:
                     radius = int(((ix2 - ix1)**2 + (iy2 - iy1)**2)**0.5)
                     self.temp_element = ("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, "")
                 elif tool == "rectangle":
-                    # Garante que x2 >= x1 and y2 >= y1
                     x1_norm = min(ix1, ix2)
                     y1_norm = min(iy1, iy2)
                     x2_norm = max(ix1, ix2)
@@ -948,10 +1462,11 @@ class GravadorDocx:
                     self.temp_element = ("arrow", [ix1, iy1, ix2, iy2], color, width, "")
                 
                 refresh_display()
-        
+
         def on_button_release(event):
-            if start_xy["x"] is not None:
-                # Converte coordenadas da tela para coordenadas da imagem original
+            if self.moving_timestamp:
+                stop_move_timestamp(event)
+            elif start_xy["x"] is not None and not move_timestamp_var.get():
                 sx, sy = start_xy["x"], start_xy["y"]
                 ex, ey = event.x, event.y
                 
@@ -962,7 +1477,6 @@ class GravadorDocx:
                 color = color_var.get()
                 width = width_var.get()
                 
-                # Limpa a pilha de desfazer quando uma nova ação é realizada - NOVO
                 self.undo_stack.clear()
                 
                 if tool == "circle":
@@ -970,7 +1484,6 @@ class GravadorDocx:
                     self.elements.append(("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, ""))
                 
                 elif tool == "rectangle":
-                    # Garante que x2 >= x1 and y2 >= y1
                     x1_norm = min(ix1, ix2)
                     y1_norm = min(iy1, iy2)
                     x2_norm = max(ix1, ix2)
@@ -981,119 +1494,127 @@ class GravadorDocx:
                     self.elements.append(("arrow", [ix1, iy1, ix2, iy2], color, width, ""))
                 
                 elif tool == "text":
-                    # Para texto, pede o conteúdo e adiciona na posição clicada
                     text = simpledialog.askstring("Texto", "Digite o texto:", parent=editor)
                     if text:
                         self.elements.append(("text", [ix1, iy1], color, width, text))
-                        # Atualiza a visualização para mostrar o texto imediatamente
                         refresh_display()
                 
                 self.temp_element = None
                 refresh_display()
             
             start_xy["x"], start_xy["y"] = None, None
-        
-        # BIND DO CTRL+Z (atalho global dentro do editor)
-        def on_key_press(event):
-            undo_action()
 
-        editor.bind_all('<Control-z>', on_key_press)
-        editor.bind_all('<Control-Z>', on_key_press)
+        def on_key_press(event):
+            if event.keysym.lower() == 'z' and (event.state & 0x4):
+                undo_action()
+
+        editor.bind('<Control-z>', on_key_press)
+        editor.bind('<Control-Z>', on_key_press)
         
-        # Bind events
-        self.canvas.bind("<ButtonPress-1>", on_button_press)
+        self.canvas.bind("<Button-1>", on_button_press)
         self.canvas.bind("<B1-Motion>", on_motion)
         self.canvas.bind("<ButtonRelease-1>", on_button_release)
         
-        # Atualiza a visualização inicial
+        def update_cursor(*args):
+            if move_timestamp_var.get():
+                self.canvas.config(cursor="hand2")
+            elif tool_var.get() == "text":
+                self.canvas.config(cursor="xterm")
+            else:
+                self.canvas.config(cursor="cross")
+        
+        tool_var.trace("w", update_cursor)
+        move_timestamp_var.trace("w", lambda *args: update_cursor())
+        
         refresh_display()
         
-        # Frame para o botão Salvar (AGORA MAIS PRÓXIMO DA IMAGEM)
-        button_frame = tk.Frame(canvas_frame)
-        button_frame.pack(pady=10)  # Reduzido o padding para ficar mais próximo
+        # BOTÕES DE AÇÃO
+        action_frame = tk.Frame(editor)
+        action_frame.pack(side=tk.BOTTOM, pady=10)
         
         def salvar_edicao():
-            # Fecha a janela de seleção de cor personalizada se estiver aberta
-            if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
-                try:
-                    self.color_chooser_window.destroy()
-                except:
-                    pass
-            
-            # Aplica todos os elementos à imagem
-            draw = ImageDraw.Draw(self.editing_img)
-            
-            for element in self.elements:
-                elem_type, coords, color, width, text = element
+            """Salva a imagem com elementos de desenho e atualiza a posição do timestamp"""
+            try:
+                # 🔥 CORREÇÃO: Carrega a imagem ORIGINAL (sem timestamp)
+                final_img = Image.open(caminho_print).convert("RGBA")
+                draw = ImageDraw.Draw(final_img)
                 
-                if elem_type == "circle":
-                    x1, y1, x2, y2 = coords
-                    draw.ellipse((x1, y1, x2, y2), outline=color, width=width)
+                # Aplica elementos de desenho
+                for element in self.elements:
+                    elem_type, coords, color, width, text = element
+                    
+                    if elem_type == "circle":
+                        x1, y1, x2, y2 = coords
+                        draw.ellipse([x1, y1, x2, y2], outline=color, width=width)
+                    
+                    elif elem_type == "rectangle":
+                        x1, y1, x2, y2 = coords
+                        draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
+                    
+                    elif elem_type == "arrow":
+                        x1, y1, x2, y2 = coords
+                        draw.line([x1, y1, x2, y2], fill=color, width=width)
+                        
+                        angle = math.atan2(y2 - y1, x2 - x1)
+                        arrow_size = 15
+                        x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
+                        y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
+                        x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
+                        y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
+                        
+                        draw.polygon([x2, y2, x3, y3, x4, y4], fill=color, outline=color)
+                    
+                    elif elem_type == "text":
+                        x, y = coords
+                        try:
+                            font_text = ImageFont.truetype("arial.ttf", 20)
+                        except:
+                            font_text = ImageFont.load_default()
+                        draw.text((x, y), text, fill=color, font=font_text)
                 
-                elif elem_type == "rectangle":
-                    x1, y1, x2, y2 = coords
-                    # Garante que as coordenadas estão normalizadas
-                    x1_norm = min(x1, x2)
-                    y1_norm = min(y1, y2)
-                    x2_norm = max(x1, x2)
-                    y2_norm = max(y1, y2)
-                    draw.rectangle((x1_norm, y1_norm, x2_norm, y2_norm), outline=color, width=width)
+                # 🔥 CORREÇÃO: NÃO aplica o timestamp aqui - será aplicado apenas na geração do DOCX
+                # Apenas atualiza a posição nos metadados
                 
-                elif elem_type == "arrow":
-                    x1, y1, x2, y2 = coords
-                    draw.line((x1, y1, x2, y2), fill=color, width=width)
-                    
-                    # Calcula o ângulo da seta
-                    angle = math.atan2(y2 - y1, x2 - x1)
-                    
-                    # Desenha a ponta da seta (triângulo)
-                    arrow_size = 20
-                    x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
-                    y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
-                    x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
-                    y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
-                    
-                    draw.polygon([(x2, y2), (x3, y3), (x4, y4)], fill=color)
+                # Salva a imagem com elementos de desenho (sem timestamp)
+                final_img.save(caminho_print)
                 
-                elif elem_type == "text":
-                    x, y = coords
-                    try:
-                        font = ImageFont.truetype("arial.ttf", 16)
-                    except:
-                        font = ImageFont.load_default()
-                    
-                    # Desenha texto diretamente
-                    draw.text((x, y), text, fill=color, font=font)
-            
-            self.editing_img.convert("RGB").save(caminho_print, "PNG")
-            messagebox.showinfo("Edição", "Evidência atualizada com sucesso!")
-            editor.destroy()
+                # 🔥 CORREÇÃO: Atualiza metadados com nova posição do timestamp
+                for evidencia in self.metadata["evidencias"]:
+                    if evidencia["arquivo"] == nome_arquivo:
+                        evidencia["timestamp_posicao"]["x"] = self.timestamp_pos[0]
+                        evidencia["timestamp_posicao"]["y"] = self.timestamp_pos[1]
+                        break
+                
+                self._salvar_metadata()
+                messagebox.showinfo("Sucesso", "Edição salva! A data/hora será aplicada na geração do documento.")
+                editor.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar: {str(e)}")
 
-        # Função para fechar o editor e garantir que la janela de cor seja fechada
-        def fechar_editor():
-            # Fecha a janela de seleção de cor personalizada se estiver aberta
-            if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
-                try:
-                    self.color_chooser_window.destroy()
-                except:
-                    pass
-            editor.destroy()
-
-        # Configurar o protocolo de fechamento da janela
-        editor.protocol("WM_DELETE_WINDOW", fechar_editor)
+        def cancelar_edicao():
+            if messagebox.askyesno("Confirmar", "Descartar todas as alterações?"):
+                editor.destroy()
         
-        # Botão Salvar e Fechar (MESMO PADRÃO DOS OUTROS BOTÕES)
-        tk.Button(button_frame, text="💾 Salvar e Fechar", command=salvar_edicao, 
-                 width=20, font=("Arial", 10)).pack()
+        tk.Button(action_frame, text="💾 Salvar", command=salvar_edicao, width=15).pack(side=tk.LEFT, padx=5)
+        
+        move_btn = tk.Button(action_frame, text="📅 Mover Data/Hora", 
+                            command=toggle_move_timestamp, relief=tk.RAISED,
+                            cursor="hand2", width=18)
+        move_btn.pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(action_frame, text="❌ Cancelar", command=cancelar_edicao, width=15).pack(side=tk.LEFT, padx=5)
 
         editor.transient(parent)
         editor.grab_set()
+        editor.focus_set()
         parent.wait_window(editor)
-    
+
+    # Métodos auxiliares para o editor
     def set_color(self, color_var, color, preview_widget):
         color_var.set(color)
         preview_widget.config(bg=color)
-    
+
     def choose_custom_color(self, parent, color_var, preview_widget):
         # Fecha qualquer janela de cor anterior que possa estar aberta
         if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
@@ -1107,7 +1628,7 @@ class GravadorDocx:
         if color[1]:
             color_var.set(color[1])
             preview_widget.config(bg=color[1])
-    
+
     def draw_arrow_on_canvas(self, x1, y1, x2, y2, color, width):
         # Desenha a linha da seta
         self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
@@ -1153,12 +1674,20 @@ if __name__ == "__main__":
     root.title("PrintF - Capturar Evidências")
     root.geometry("500x400")
 
+    # 🔥 GARANTIR QUE A BARRA SEJA RESTAURADA AO FECHAR O APLICATIVO
+    def on_closing():
+        if WIN32_AVAILABLE:
+            restaurar_configuracao_barra()
+        root.quit()
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
     tk.Label(root, text="📷 PrintF - Capturar Evidências", font=("Arial", 16, "bold")).pack(pady=10)
     tk.Button(root, text="▶ Iniciar Gravação (F8)", command=lambda: root.after(0, iniciar), width=30).pack(pady=5)
     tk.Button(root, text="⏸ Pausar Gravação (F6)", command=lambda: root.after(0, pausar), width=30).pack(pady=5)
     tk.Button(root, text="▶ Retomar Gravação (F7)", command=lambda: root.after(0, retomar), width=30).pack(pady=5)
     tk.Button(root, text="⏹ Finalizar Gravação (F9)", command=lambda: root.after(0, finalizar), width=30).pack(pady=5)
-    tk.Button(root, text="❌ Fechar Aplicativo (F12)", command=lambda: root.after(0, root.quit), width=30).pack(pady=8)
+    tk.Button(root, text="❌ Fechar Aplicativo (F12)", command=on_closing, width=30).pack(pady=8)
 
 # ------------------ Atalhos globais ------------------
 def on_press(key):
