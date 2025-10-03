@@ -15,7 +15,7 @@ import glob
 import json  # Adicionado
 import uuid   # Adicionado
 
-# ------------------ Gerador Docx ------------------
+# ------------------ Gerador Docx -----------------
 class GeradorDocx:
     def __init__(self):
         self.output_dir = os.getcwd()
