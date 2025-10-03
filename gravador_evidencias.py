@@ -18,119 +18,27 @@ import uuid
 import time
 import ctypes
 from ctypes import wintypes, byref
+import tkinter.font as tkfont
 
 # 🔥 CONTROLE AUTOMÁTICO DA BARRA DE TAREFAS
 try:
     import win32gui
     import win32con
+    import win32api
     WIN32_AVAILABLE = True
 except ImportError:
     win32gui = None
     win32con = None
+    win32api = None
     WIN32_AVAILABLE = False
-
-# Constantes do Windows para configuração da barra de tarefas
-ABM_GETTASKBARPOS = 0x00000005
-ABM_SETSTATE = 0x0000000A
-ABS_AUTOHIDE = 0x0000001
-ABS_ALWAYSONTOP = 0x0000002
-
-class APPBARDATA(ctypes.Structure):
-    _fields_ = [
-        ("cbSize", wintypes.DWORD),
-        ("hWnd", wintypes.HWND),
-        ("uCallbackMessage", wintypes.UINT),
-        ("uEdge", wintypes.UINT),
-        ("rc", wintypes.RECT),
-        ("lParam", wintypes.LPARAM),
-    ]
-
-def configurar_barra_autohide(habilitar=True):
-    """Configura a barra de tarefas para ocultar automaticamente"""
-    if not WIN32_AVAILABLE:
-        return False
-        
-    try:
-        # Encontra a janela da barra de tarefas
-        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
-        if not hwnd:
-            return False
-            
-        # Prepara a estrutura APPBARDATA
-        abd = APPBARDATA()
-        abd.cbSize = ctypes.sizeof(APPBARDATA)
-        abd.hWnd = hwnd
-        
-        # Configura para ocultar automaticamente ou não
-        if habilitar:
-            estado = ABS_AUTOHIDE
-        else:
-            estado = ABS_ALWAYSONTOP
-            
-        # Aplica a configuração
-        resultado = ctypes.windll.shell32.SHAppBarMessage(ABM_SETSTATE, byref(abd), estado)
-        return resultado != 0
-        
-    except Exception as e:
-        print(f"Erro ao configurar barra automática: {e}")
-        return False
-
-def obter_configuracao_barra_atual():
-    """Obtém a configuração atual da barra de tarefas"""
-    if not WIN32_AVAILABLE:
-        return None
-        
-    try:
-        # Usa win32gui para verificar se a barra está configurada para auto-ocultar
-        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
-        if hwnd:
-            # Verifica o estilo da janela para detectar auto-ocultação
-            estilo = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-            if estilo & win32con.WS_EX_TOOLWINDOW:
-                return "autohide"
-            return "always_visible"
-    except Exception as e:
-        print(f"Erro ao obter configuração da barra: {e}")
     
-    return None
-
-def restaurar_configuracao_barra():
-    """Restaura a configuração original da barra de tarefas"""
-    if not hasattr(restaurar_configuracao_barra, 'config_original'):
-        return
-        
-    try:
-        if restaurar_configuracao_barra.config_original == "autohide":
-            configurar_barra_autohide(True)
-        else:
-            configurar_barra_autohide(False)
-        print("Configuração da barra restaurada")
-    except Exception as e:
-        print(f"Erro ao restaurar barra: {e}")
-
-def ocultar_barra_tarefas():
-    """Oculta a barra de tarefas temporariamente"""
-    if not WIN32_AVAILABLE:
-        return
-        
-    try:
-        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
-        if hwnd:
-            win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
-    except Exception as e:
-        print(f"Erro ao ocultar barra: {e}")
-
-def mostrar_barra_tarefas():
-    """Mostra a barra de tarefas novamente"""
-    if not WIN32_AVAILABLE:
-        return
-        
-    try:
-        hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
-        if hwnd:
-            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
-    except Exception as e:
-        print(f"Erro ao mostrar barra: {e}")
+# 🔥 ADICIONAR MSS PARA CAPTURA MULTI-MONITOR
+try:
+    import mss
+    MSS_AVAILABLE = True
+except ImportError:
+    mss = None
+    MSS_AVAILABLE = False
 
 # ------------------ Gravador e Docx ------------------
 class GravadorDocx:
@@ -158,9 +66,7 @@ class GravadorDocx:
         self.current_img_tk = None
         self.comment_entry = None
         self.manter_evidencias = None
-        self.barra_configurada = False  # 🔥 NOVO: Controla se a barra foi configurada
-        self.barra_visivel_check = None  # 🔥 NOVO: Controle do verificador de barra
-        self.verificando_barra = False   # 🔥 NOVO: Flag para controle
+        self.modo_captura = "ocultar"  # Valores: "manter", "ocultar"
 
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
@@ -196,11 +102,238 @@ class GravadorDocx:
             return True
         return False
 
+    # 🔥 MÉTODOS DE CAPTURA SIMPLIFICADOS E OTIMIZADOS
+    def capture_inteligente(self, x, y):
+        """
+        Captura a tela baseado no modo selecionado pelo usuário
+        """
+        if self.modo_captura == "manter":
+            # Modo manter: captura tela COMPLETA (incluindo barra de tarefas)
+            return self.capture_tela_completa_mss(x, y)
+        else:
+            # Modo ocultar: captura apenas área de trabalho (sem barra)
+            return self.capture_work_area_pyautogui(x, y)
+
+    def capture_tela_completa_mss(self, x, y):
+        """
+        Captura a tela completa INCLUINDO a barra de tarefas.
+        Funciona no primário e secundário, mesmo com coordenadas negativas.
+        """
+        try:
+            # 🔥 ESTRATÉGIA 1: Win32 API para captura precisa de monitor específico
+            if WIN32_AVAILABLE:
+                try:
+                    # Encontrar o monitor que contém o ponto (x, y)
+                    monitor_handle = win32api.MonitorFromPoint((x, y), win32con.MONITOR_DEFAULTTONEAREST)
+                    monitor_info = win32gui.GetMonitorInfo(monitor_handle)
+                    
+                    # Área completa do monitor (inclui barra)
+                    monitor_area = monitor_info["Monitor"]  # (left, top, right, bottom)
+                    
+                    # Capturar usando MSS para melhor compatibilidade com múltiplos monitores
+                    if MSS_AVAILABLE:
+                        with mss.mss() as sct:
+                            monitor_mss = {
+                                "left": monitor_area[0],
+                                "top": monitor_area[1], 
+                                "width": monitor_area[2] - monitor_area[0],
+                                "height": monitor_area[3] - monitor_area[1]
+                            }
+                            screenshot = sct.grab(monitor_mss)
+                            img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                            
+                            rel_x = x - monitor_area[0]
+                            rel_y = y - monitor_area[1]
+                            
+                            metodo_utilizado = f"Win32 + MSS Monitor Completo {monitor_area}"
+                            print(f"✅ CAPTURA WIN32+MSS - Monitor {monitor_area} | Coord: ({rel_x},{rel_y})")
+                            
+                            return img, (rel_x, rel_y), metodo_utilizado
+                    else:
+                        # Fallback para ImageGrab se MSS não disponível
+                        screenshot = ImageGrab.grab(bbox=monitor_area)
+                        rel_x = x - monitor_area[0]
+                        rel_y = y - monitor_area[1]
+                        
+                        metodo_utilizado = f"Win32 Monitor Completo {monitor_area}"
+                        print(f"✅ CAPTURA WIN32 - Monitor {monitor_area} | Coord: ({rel_x},{rel_y})")
+                        
+                        return screenshot, (rel_x, rel_y), metodo_utilizado
+                        
+                except Exception as e:
+                    print(f"⚠️  Win32 falhou (capturando com alternativa): {e}")
+
+            # 🔥 ESTRATÉGIA 2: MSS como alternativa principal
+            if MSS_AVAILABLE:
+                try:
+                    with mss.mss() as sct:
+                        monitor_encontrado = None
+                        
+                        # Procurar em todos os monitores (exceto o virtual)
+                        for monitor in sct.monitors[1:]:
+                            if (monitor["left"] <= x < monitor["left"] + monitor["width"] and
+                                monitor["top"] <= y < monitor["top"] + monitor["height"]):
+                                monitor_encontrado = monitor
+                                break
+
+                        # Fallback para primeiro monitor se não encontrou
+                        if not monitor_encontrado:
+                            monitor_encontrado = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                            print(f"⚠️  Monitor não encontrado para coordenadas ({x},{y}), usando monitor {monitor_encontrado} como fallback")
+
+                        # Capturar a tela completa do monitor encontrado
+                        screenshot = sct.grab(monitor_encontrado)
+                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+                        # Calcular coordenadas relativas ao monitor
+                        rel_x = x - monitor_encontrado["left"]
+                        rel_y = y - monitor_encontrado["top"]
+
+                        metodo_utilizado = f"MSS Monitor Completo {monitor_encontrado['width']}x{monitor_encontrado['height']}"
+                        print(f"✅ CAPTURA MSS - Monitor {monitor_encontrado} | Coord: ({rel_x},{rel_y})")
+
+                        return img, (rel_x, rel_y), metodo_utilizado
+                        
+                except Exception as e:
+                    print(f"⚠️  MSS falhou (capturando com alternativa): {e}")
+
+            # 🔥 ESTRATÉGIA 3: Fallback com ImageGrab
+            try:
+                screenshot = ImageGrab.grab()
+                metodo_utilizado = "Fallback - ImageGrab (tela completa)"
+                print(f"⚠️  Usando fallback ImageGrab para coordenadas ({x},{y})")
+                return screenshot, (x, y), metodo_utilizado
+                
+            except Exception as e:
+                print(f"⚠️  ImageGrab falhou: {e}")
+
+            # 🔥 ESTRATÉGIA 4: Fallback final com pyautogui
+            try:
+                screenshot = pyautogui.screenshot()
+                metodo_utilizado = "Fallback - pyautogui (apenas primário)"
+                print(f"⚠️  Usando fallback pyautogui para coordenadas ({x},{y})")
+                return screenshot, (x, y), metodo_utilizado
+                
+            except Exception as e:
+                print(f"❌ Todos os métodos de captura falharam: {e}")
+                raise
+
+        except Exception as e:
+            print(f"❌ Falha crítica na captura completa: {e}")
+            # Último recurso - retorna imagem preta ou levanta exceção
+            try:
+                # Tenta criar uma imagem preta como fallback extremo
+                img = Image.new('RGB', (100, 100), color='black')
+                return img, (0, 0), f"Fallback Extremo - Erro: {str(e)}"
+            except:
+                raise Exception(f"Falha completa na captura de tela: {str(e)}")
+
+    def capture_work_area_pyautogui(self, x, y):
+        """
+        Captura apenas a área de trabalho (SEM barra de tarefas) usando pyautogui
+        Este método é usado no modo "ocultar"
+        """
+        try:
+            # Captura com pyautogui (já captura sem a barra automaticamente)
+            screenshot = pyautogui.screenshot()
+            
+            metodo_utilizado = "PyAutoGUI - Área de Trabalho (sem barra)"
+            print(f"✅ CAPTURA PYAUTOGUI - Área de Trabalho | Coord: ({x},{y})")
+            
+            return screenshot, (x, y), metodo_utilizado
+            
+        except Exception as e:
+            print(f"❌ Falha na captura com pyautogui: {e}")
+            # Fallback extremo
+            screenshot = pyautogui.screenshot()
+            return screenshot, (x, y), f"Fallback - Erro: {str(e)}"
+
+    def estimativa_segura_barra_tarefas(self, altura_tela):
+        """
+        Estimativa conservadora da altura da barra de tarefas
+        """
+        if altura_tela >= 2160:  # 4K
+            return 100
+        elif altura_tela >= 1440:  # QHD
+            return 80
+        elif altura_tela >= 1080:  # Full HD
+            return 70
+        else:  # Resoluções menores
+            return 60
+        
+    # 🔥 NOVA FUNÇÃO: APLICAR TIMESTAMP MODERNO COM FUNDO
+    def aplicar_timestamp_moderno(self, caminho_imagem, evidencia_meta):
+        """Aplica o timestamp com fundo semi-transparente e texto branco"""
+        img = Image.open(caminho_imagem).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+        
+        # Calcular posição em pixels
+        img_width, img_height = img.size
+        pos_x = int(evidencia_meta["timestamp_posicao"]["x"] * img_width)
+        pos_y = int(evidencia_meta["timestamp_posicao"]["y"] * img_height)
+        
+        # Configurações do texto
+        texto = evidencia_meta["timestamp_texto"]
+        texto_cor = evidencia_meta["timestamp_cor"]  # Branco
+        fundo_cor = evidencia_meta.get("timestamp_fundo", "#000000B2")  # Preto 70%
+        tamanho = evidencia_meta["timestamp_tamanho"]
+        
+        # Converter cor de fundo para RGBA
+        if fundo_cor.startswith("#") and len(fundo_cor) == 9:  # Formato #RRGGBBAA
+            r = int(fundo_cor[1:3], 16)
+            g = int(fundo_cor[3:5], 16)
+            b = int(fundo_cor[5:7], 16)
+            a = int(fundo_cor[7:9], 16)
+            fundo_rgba = (r, g, b, a)
+        else:
+            fundo_rgba = (0, 0, 0, 178)  # Fallback: preto 70%
+        
+        # Usar fonte
+        try:
+            font = ImageFont.truetype("arial.ttf", tamanho)
+        except:
+            font = ImageFont.load_default()
+        
+        # 🔥 CALCULAR TAMANHO DO TEXTO PARA CRIAR FUNDO
+        bbox = draw.textbbox((0, 0), texto, font=font)
+        texto_largura = bbox[2] - bbox[0]
+        texto_altura = bbox[3] - bbox[1]
+        
+        # 🔥 DEFINIR PADDING E CANTOS ARREDONDADOS
+        padding = 10
+        borda_radius = 8
+        
+        # Coordenadas do fundo
+        fundo_x1 = pos_x - padding
+        fundo_y1 = pos_y - padding
+        fundo_x2 = pos_x + texto_largura + padding
+        fundo_y2 = pos_y + texto_altura + padding
+        
+        # 🔥 DESENHAR FUNDO COM CANTOS ARREDONDADOS
+        # Criar máscara para cantos arredondados
+        mask = Image.new("L", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.rounded_rectangle(
+            [0, 0, fundo_x2 - fundo_x1, fundo_y2 - fundo_y1],
+            radius=borda_radius,
+            fill=255
+        )
+        
+        # Aplicar fundo semi-transparente
+        fundo_img = Image.new("RGBA", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), fundo_rgba)
+        img.paste(fundo_img, (fundo_x1, fundo_y1), mask)
+        
+        # 🔥 DESENHAR TEXTO BRANCO (SEM BORDAS PRETAS)
+        draw.text((pos_x, pos_y), texto, fill=texto_cor, font=font)
+        
+        # Salvar a imagem
+        img.save(caminho_imagem)
+
     # ---------- Nova janela de configuração ----------
     def mostrar_janela_configuracao(self):
         config_window = tk.Toplevel(root)
         config_window.title("Configuração de Gravação")
-        config_window.geometry("600x550")
+        config_window.geometry("600x600")
         config_window.resizable(False, False)
         
         config_window.transient(root)
@@ -249,6 +382,35 @@ class GravadorDocx:
         
         ttk.Button(dir_frame, text="Procurar", command=selecionar_diretorio).pack(side=tk.RIGHT)
         
+        # 🔥 NOVO: Seleção do modo de captura (APENAS 2 OPÇÕES)
+        ttk.Label(main_frame, text="Modo de Captura da Barra de Tarefas:", 
+                 font=("Arial", 11, "bold")).pack(anchor="w", pady=(20, 10))
+        
+        # Variável para os RadioButtons
+        self.modo_captura_var = tk.StringVar(value="ocultar")  # Valor padrão
+        
+        # Frame para os RadioButtons
+        modo_frame = ttk.Frame(main_frame)
+        modo_frame.pack(fill=tk.X, pady=5)
+        
+        # RadioButton 1: Manter barra completa
+        rb1 = ttk.Radiobutton(
+            modo_frame, 
+            text="Manter barra de tarefas (data/hora visível na barra do Windows)",
+            variable=self.modo_captura_var, 
+            value="manter"
+        )
+        rb1.pack(anchor="w", pady=2)
+        
+        # RadioButton 2: Ocultar barra
+        rb2 = ttk.Radiobutton(
+            modo_frame, 
+            text="Ocultar barra de tarefas (data/hora será adicionada na imagem)",
+            variable=self.modo_captura_var, 
+            value="ocultar"
+        )
+        rb2.pack(anchor="w", pady=2)
+        
         # Checkbox para manter evidências
         ttk.Label(main_frame, text="Opções de saída:", font=("Arial", 11, "bold")).pack(anchor="w", pady=(20, 10))
         
@@ -281,22 +443,24 @@ class GravadorDocx:
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
         
         def iniciar_com_config():
-            # ⚠️ CORREÇÃO: Acessar as variáveis através da instância global 'gravador'
-            if not gravador.template_var.get() or not gravador.dir_var.get():
+            if not self.template_var.get() or not self.dir_var.get():
                 messagebox.showerror("Erro", "Por favor, selecione o template e o diretório de destino.")
                 return
             
-            if not os.path.exists(gravador.template_var.get()):
+            if not os.path.exists(self.template_var.get()):
                 messagebox.showerror("Erro", "O arquivo de template selecionado não existe.")
                 return
             
+            # 🔥 Armazena a escolha do modo de captura
+            self.modo_captura = self.modo_captura_var.get()
+            
             # 🔥 VERIFICAÇÃO ADICIONAL: Limpar qualquer estado residual
-            gravador.gravando = False
-            gravador.pausado = False
-            gravador.prints = []
+            self.gravando = False
+            self.pausado = False
+            self.prints = []
             
             # VALIDAÇÃO SIMPLES: BLOQUEAR APENAS SE TIVER ARQUIVOS
-            dir_path = gravador.dir_var.get()
+            dir_path = self.dir_var.get()
             
             if os.path.exists(dir_path):
                 try:
@@ -321,14 +485,14 @@ class GravadorDocx:
                     return
             
             # Armazenar a escolha do usuário
-            gravador.manter_evidencias = gravador.manter_evidencias_var.get()
+            self.manter_evidencias = self.manter_evidencias_var.get()
             
-            gravador.template_path = gravador.template_var.get()
-            gravador.output_dir = gravador.dir_var.get()
-            gravador.evidence_dir = gravador.dir_var.get()
+            self.template_path = self.template_var.get()
+            self.output_dir = self.dir_var.get()
+            self.evidence_dir = self.dir_var.get()
             config_window.destroy()            
               
-            gravador.iniciar_gravacao()
+            self.iniciar_gravacao()
         
         # Centralizar os botões horizontalmente
         button_container = ttk.Frame(btn_frame)
@@ -345,7 +509,7 @@ class GravadorDocx:
         screen_height = config_window.winfo_screenheight()
         
         if config_window.winfo_height() > screen_height:
-            config_window.geometry(f"500x{screen_height-100}")
+            config_window.geometry(f"600x{screen_height-100}")
         
         root.wait_window(config_window)
         return self.template_path is not None and self.output_dir is not None
@@ -359,7 +523,6 @@ class GravadorDocx:
         self.evidencia_count = 0
         self.current_index = 0
         self.metadata = {"evidencias": [], "proximo_id": 1}
-        self.barra_configurada = False
         
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -384,43 +547,7 @@ class GravadorDocx:
             
         messagebox.showinfo("Gravação", "▶ Clique em OK para começar a gravar!")
         
-        # 🔥 CONFIGURAR BARRA DE TAREFAS - APÓS O USUÁRIO CLICAR EM OK
-        if WIN32_AVAILABLE:
-            try:
-                # Salva configuração atual ANTES de qualquer alteração
-                restaurar_configuracao_barra.config_original = obter_configuracao_barra_atual()
-                print(f"Configuração original da barra: {restaurar_configuracao_barra.config_original}")
-                
-                # PRIMEIRO: Configurar para auto-ocultar
-                if configurar_barra_autohide(True):
-                    self.barra_configurada = True
-                    print("Barra configurada para auto-ocultar")
-                    
-                    # SEGUNDO: Ocultar manualmente também (redundância para garantir)
-                    ocultar_barra_tarefas()
-                    
-                    # 🔥 AUMENTAR DELAY e forçar atualização
-                    time.sleep(3)  # Delay aumentado para 3 segundos
-                    
-                    # 🔥 NOVO: Forçar refresh do Windows
-                    ctypes.windll.user32.UpdatePerUserSystemParameters(1)
-                    
-                else:
-                    print("Não foi possível configurar auto-ocultar, usando ocultação manual")
-                    # Fallback: ocultar manualmente
-                    ocultar_barra_tarefas()
-                    self.barra_configurada = True
-            except Exception as e:
-                print(f"Erro ao configurar barra: {e}")
-                # Fallback em caso de erro
-                try:
-                    ocultar_barra_tarefas()
-                    self.barra_configurada = True
-                except:
-                    print("Não foi possível ocultar a barra")
-
-        # 🔥 NOVO: Iniciar verificação contínua da barra
-        self.iniciar_verificacao_barra()
+        print(f"Iniciando gravação com modo: {self.modo_captura}")
 
         self.gravando = True
         self.pausado = False
@@ -434,122 +561,42 @@ class GravadorDocx:
         self.listener_mouse = mouse.Listener(on_click=self.on_click)
         self.listener_mouse.start()        
 
-    def iniciar_verificacao_barra(self):
-        """Inicia a verificação periódica da barra de tarefas"""
-        if not WIN32_AVAILABLE or self.verificando_barra:
-            return
-        
-        self.verificando_barra = True
-        self.verificar_barra_visivel()
-
-    def parar_verificacao_barra(self):
-        """Para a verificação periódica da barra"""
-        self.verificando_barra = False
-        if self.barra_visivel_check:
-            root.after_cancel(self.barra_visivel_check)
-            self.barra_visivel_check = None
-
-    def verificar_barra_visivel(self):
-        """Verifica se a barra está visível e a oculta se necessário"""
-        if not self.verificando_barra or not self.gravando or self.pausado:
-            return
-
-        try:
-            if WIN32_AVAILABLE:
-                hwnd = win32gui.FindWindow("Shell_TrayWnd", None)
-                if hwnd:
-                    # Verifica se a janela da barra está visível
-                    if win32gui.IsWindowVisible(hwnd):
-                        print("Barra de tarefas detectada como visível - ocultando")
-                        ocultar_barra_tarefas()
-                        
-                        # 🔥 FORÇAR: Configurar auto-ocultar novamente para garantir
-                        configurar_barra_autohide(True)
-                        
-        except Exception as e:
-            print(f"Erro ao verificar barra: {e}")
-
-        # 🔥 Agendar próxima verificação (a cada 1 segundo)
-        if self.verificando_barra:
-            self.barra_visivel_check = root.after(1000, self.verificar_barra_visivel)
-
     def pausar(self):
         if self.gravando and not self.pausado:
             self.pausado = True
-            # 🔥 NOVO: Parar verificação da barra quando pausado
-            self.parar_verificacao_barra()
             messagebox.showinfo("Gravação", "⏸ Gravação pausada!")
 
     def retomar(self):
         if self.gravando and self.pausado:            
             self.pausado = False
-            # 🔥 NOVO: Reiniciar verificação da barra ao retomar
-            self.iniciar_verificacao_barra()
             messagebox.showinfo("Gravação", "▶ Gravação retomada!")
-
 
     def finalizar(self):
         if self.gravando:
             self.gravando = False
-            # 🔥 NOVO: Parar verificação da barra ao finalizar
-            self.parar_verificacao_barra()
             
             if self.listener_mouse:
                 self.listener_mouse.stop()
                 self.listener_mouse = None
             
-            # 🔥 RESTAURAR CONFIGURAÇÃO ORIGINAL DA BARRA - MAIS ROBUSTO
-            if WIN32_AVAILABLE and self.barra_configurada:
-                try:
-                    time.sleep(2)  # 🔥 AUMENTAR delay antes de restaurar
-                    
-                    # PRIMEIRO: Mostrar a barra
-                    mostrar_barra_tarefas()
-                    time.sleep(1)
-                    
-                    # SEGUNDO: Restaurar configuração original
-                    restaurar_configuracao_barra()
-                    
-                    # TERCEIRO: Forçar refresh do Windows
-                    ctypes.windll.user32.UpdatePerUserSystemParameters(1)
-                    
-                    self.barra_configurada = False
-                    print("Configuração da barra completamente restaurada")
-                except Exception as e:
-                    print(f"Erro ao restaurar barra: {e}")
-                    # Fallback: garantir que a barra esteja visível
-                    try:
-                        mostrar_barra_tarefas()
-                    except:
-                        pass
+            print("Gravação finalizada - usando captura híbrida sem alterações na barra")
             
             messagebox.showinfo("Gravação", "⏹ Gravação finalizada!")
             if self.prints:
                 self.gerar_docx()
             else:
-                # 🔥 ADICIONADO: Mensagem se não houver evidências
                 messagebox.showinfo("Info", "Nenhuma evidência capturada.")
 
+    # 🔥 MÉTODO on_click ATUALIZADO PARA USAR CAPTURA INTELIGENTE
     def on_click(self, x, y, button, pressed):
         if pressed and self.gravando and not self.pausado:
-            # 🔥 VERIFICAÇÃO INTELIGENTE: Só oculta se o clique for na área da barra
-            clique_na_barra = False
+            # 🔥 USAR CAPTURA INTELIGENTE (multi-monitor)
+            screenshot, coordenadas_relativas, metodo = self.capture_inteligente(x, y)
             
-            if WIN32_AVAILABLE:
-                try:
-                    hwnd_barra = win32gui.FindWindow("Shell_TrayWnd", None)
-                    if hwnd_barra:
-                        rect_barra = win32gui.GetWindowRect(hwnd_barra)
-                        # Verifica se o clique está dentro da área da barra
-                        if (rect_barra[0] <= x <= rect_barra[2] and 
-                            rect_barra[1] <= y <= rect_barra[3]):
-                            clique_na_barra = True
-                            print("Clique na barra detectado - ocultando temporariamente")
-                            ocultar_barra_tarefas()
-                            time.sleep(0.3)  # Pequeno delay para garantir que some
-                except Exception as e:
-                    print(f"Erro ao verificar barra: {e}")
-            
+            if not screenshot:
+                print("Erro: Não foi possível capturar a tela")
+                return
+
             # Gerar nome único com ID sequencial e timestamp
             evidencia_id = self.metadata["proximo_id"]
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -557,54 +604,68 @@ class GravadorDocx:
             caminho_print = os.path.join(self.output_dir, nome_arquivo)
 
             try:
-                screenshot = self.capture_monitor_screenshot(x, y)
+                click_x, click_y = coordenadas_relativas
                 
-                if screenshot:
-                    click_x, click_y = self.get_relative_coordinates(x, y, screenshot)
-                    
-                    img = screenshot.convert("RGBA")
-                    overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
-                    draw = ImageDraw.Draw(overlay)
-                    r = 40
-                    
-                    draw.ellipse((click_x-r, click_y-r, click_x+r, click_y+r), fill=(255, 255, 0, 100))
-                    final_img = Image.alpha_composite(img, overlay)
-                    final_img.convert("RGB").save(caminho_print, "PNG")
-                    
-                    # Adicionar aos metadados
-                    timestamp_captura = datetime.now().isoformat()
-                    timestamp_texto = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                img = screenshot.convert("RGBA")
+                overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
+                draw = ImageDraw.Draw(overlay)
+                r = 40
+                
+                draw.ellipse((click_x-r, click_y-r, click_x+r, click_y+r), fill=(255, 255, 0, 100))
+                final_img = Image.alpha_composite(img, overlay)
+                final_img.convert("RGB").save(caminho_print, "PNG")
+                
+                # Adicionar aos metadados
+                timestamp_captura = datetime.now().isoformat()
+                timestamp_texto = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
-                    self.metadata["evidencias"].append({
-                        "id": evidencia_id,
-                        "arquivo": nome_arquivo,
-                        "timestamp": timestamp_captura,
+                # 🔥 DIFERENÇA CRÍTICA: Só adiciona dados de timestamp se for modo "ocultar"
+                metadados_timestamp = {}
+                if self.modo_captura == "ocultar":
+                    metadados_timestamp = {
                         "timestamp_texto": timestamp_texto,
-                        "timestamp_posicao": {"x": 0.85, "y": 0.90},
-                        "timestamp_cor": "#FF0000",
+                        "timestamp_posicao": {"x": 0.75, "y": 0.90},
+                        "timestamp_cor": "#FFFFFF",
+                        "timestamp_fundo": "#000000B2",
                         "timestamp_tamanho": 24,
-                        "excluida": False,
-                        "comentario": ""
-                    })
-                    self.metadata["proximo_id"] += 1
-                    self._salvar_metadata()
-                    
-                    self.prints.append(caminho_print)
-                    print(f"Print salvo: {caminho_print}")
-                    
+                    }
+                else:
+                    metadados_timestamp = {
+                        "timestamp_texto": "",
+                        "timestamp_posicao": {"x": 0.75, "y": 0.90},
+                        "timestamp_cor": "#FFFFFF", 
+                        "timestamp_fundo": "#000000B2",
+                        "timestamp_tamanho": 24,
+                    }
+
+                self.metadata["evidencias"].append({
+                    "id": evidencia_id,
+                    "arquivo": nome_arquivo,
+                    "timestamp": timestamp_captura,
+                    "excluida": False,
+                    "comentario": "",
+                    "metodo_captura": metodo,
+                    **metadados_timestamp
+                })
+                self.metadata["proximo_id"] += 1
+                self._salvar_metadata()
+                
+                self.prints.append(caminho_print)
+                print(f"Print salvo: {caminho_print} | Método: {metodo} | Modo: {self.modo_captura}")
+                
             except Exception as e:
-                print(f"Erro ao capturar tela: {e}")
+                print(f"Erro ao processar captura: {e}")
                 try:
-                    screenshot = pyautogui.screenshot()
+                    # Fallback: salvar screenshot diretamente
                     screenshot.save(caminho_print)
                     
-                    # Adicionar aos metadados mesmo com erro na captura especializada
                     self.metadata["evidencias"].append({
                         "id": evidencia_id,
                         "arquivo": nome_arquivo,
                         "timestamp": datetime.now().isoformat(),
                         "excluida": False,
-                        "comentario": ""
+                        "comentario": "",
+                        "metodo_captura": f"Fallback - {metodo}"
                     })
                     self.metadata["proximo_id"] += 1
                     self._salvar_metadata()
@@ -612,68 +673,6 @@ class GravadorDocx:
                     self.prints.append(caminho_print)
                 except Exception as fallback_error:
                     print(f"Erro no fallback: {fallback_error}")
-            finally:
-                # 🔥 MOSTRAR barra de tarefas APENAS se foi ocultada durante este clique
-                if clique_na_barra:
-                    time.sleep(0.1)
-                    # 🔥 CORREÇÃO: Não mostrar a barra aqui - deixar a verificação contínua cuidar disso
-                    # mostrar_barra_tarefas()  # REMOVIDO
-
-    def capture_monitor_screenshot(self, x, y):
-        try:
-            import mss
-            import mss.tools
-            
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                
-                for i, monitor in enumerate(monitors):
-                    if i == 0:
-                        continue
-                        
-                    if (monitor["left"] <= x < monitor["left"] + monitor["width"] and
-                        monitor["top"] <= y < monitor["top"] + monitor["height"]):
-                        
-                        screenshot = sct.grab(monitor)
-                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
-                        return img
-                
-                primary_monitor = monitors[1]
-                screenshot = sct.grab(primary_monitor)
-                img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
-                return img
-                
-        except Exception as e:
-            print(f"Erro com mss: {e}")
-            try:
-                return pyautogui.screenshot()
-            except:
-                return None
-
-    def get_relative_coordinates(self, absolute_x, absolute_y, screenshot):
-        try:
-            import mss
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                
-                for i, monitor in enumerate(monitors):
-                    if i == 0:
-                        continue
-                        
-                    if (monitor["left"] <= absolute_x < monitor["left"] + monitor["width"] and
-                        monitor["top"] <= absolute_y < monitor["top"] + monitor["height"]):
-                        
-                        rel_x = absolute_x - monitor["left"]
-                        rel_y = absolute_y - monitor["top"]
-                        return rel_x, rel_y
-                
-                primary = monitors[1]
-                rel_x = absolute_x - primary["left"]
-                rel_y = absolute_y - primary["top"]
-                return rel_x, rel_y
-                
-        except Exception:
-            return absolute_x, absolute_y
 
     # ---------- Navegação e Geração do DOCX ----------
     def gerar_docx(self):
@@ -706,20 +705,18 @@ class GravadorDocx:
         
         # Frame do comentário (abaixo da imagem)
         comment_frame = tk.Frame(self.popup)
-        comment_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))  # Reduzido espaçamento
+        comment_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
                 
         tk.Label(comment_frame, text="Comentário:", font=("Arial", 11)).pack(anchor="w")
         
-        
         # Criar um frame para o campo de entrada
         comment_entry_frame = tk.Frame(comment_frame)
-        comment_entry_frame.pack(fill=tk.X, pady=2)  # Reduzido espaçamento
+        comment_entry_frame.pack(fill=tk.X, pady=2)
         
         # Campo de comentário
         self.comment_entry = tk.Entry(comment_entry_frame, font=("Arial", 10))
         self.comment_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.comment_entry.bind("<FocusOut>", lambda e: self.salvar_comentario())
-        
         
         # Frame principal para os botões de navegação e ação
         buttons_main_frame = tk.Frame(self.popup)
@@ -727,7 +724,7 @@ class GravadorDocx:
         
         # Frame para centralizar os botões de navegação
         nav_frame = tk.Frame(buttons_main_frame)
-        nav_frame.pack(expand=True, pady=2)  # Centralizado e com pouco espaçamento
+        nav_frame.pack(expand=True, pady=2)
         
         # Botões de navegação (centralizados)
         tk.Button(nav_frame, text="⏮️ Primeira", command=self.primeira_evidencia, 
@@ -795,8 +792,8 @@ class GravadorDocx:
             nome_arquivo = os.path.basename(caminho_print)
             timestamp_data = self.obter_timestamp_metadata(nome_arquivo)
             
-            # Aplicar o timestamp na imagem para exibição (em memória)
-            if timestamp_data:
+            # 🔥 DIFERENÇA CRÍTICA: Só aplica timestamp se for modo "ocultar" E tiver texto
+            if timestamp_data and timestamp_data["texto"] and self.modo_captura == "ocultar":
                 draw = ImageDraw.Draw(img)
                 
                 # Calcular posição em pixels
@@ -804,10 +801,11 @@ class GravadorDocx:
                 pos_x = int(timestamp_data["x"] * img_width)
                 pos_y = int(timestamp_data["y"] * img_height)
                 
-                # Configurações do texto - AUMENTAR TAMANHO DA FONTE
+                # Configurações do texto
                 texto = timestamp_data["texto"]
-                cor = timestamp_data["cor"]
-                tamanho = 24  # Aumentado de 16 para 24
+                texto_cor = timestamp_data["cor"]
+                fundo_cor = timestamp_data.get("fundo", "#000000B2")
+                tamanho = 24
                 
                 # Usar fonte
                 try:
@@ -815,19 +813,51 @@ class GravadorDocx:
                 except:
                     font = ImageFont.load_default()
                 
-                # Adicionar contorno preto para melhor legibilidade
-                draw.text((pos_x-1, pos_y-1), texto, fill='black', font=font)
-                draw.text((pos_x+1, pos_y-1), texto, fill='black', font=font)
-                draw.text((pos_x-1, pos_y+1), texto, fill='black', font=font)
-                draw.text((pos_x+1, pos_y+1), texto, fill='black', font=font)
+                # 🔥 CALCULAR TAMANHO DO TEXTO PARA CRIAR FUNDO
+                bbox = draw.textbbox((0, 0), texto, font=font)
+                texto_largura = bbox[2] - bbox[0]
+                texto_altura = bbox[3] - bbox[1]
                 
-                # Texto principal vermelho
-                draw.text((pos_x, pos_y), texto, fill=cor, font=font)
+                # 🔥 DEFINIR PADDING E CANTOS ARREDONDADOS
+                padding = 10
+                borda_radius = 8
+                
+                # Coordenadas do fundo
+                fundo_x1 = pos_x - padding
+                fundo_y1 = pos_y - padding
+                fundo_x2 = pos_x + texto_largura + padding
+                fundo_y2 = pos_y + texto_altura + padding
+                
+                # 🔥 DESENHAR FUNDO COM CANTOS ARREDONDADOS
+                # Criar máscara para cantos arredondados
+                mask = Image.new("L", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), 0)
+                mask_draw = ImageDraw.Draw(mask)
+                mask_draw.rounded_rectangle(
+                    [0, 0, fundo_x2 - fundo_x1, fundo_y2 - fundo_y1],
+                    radius=borda_radius,
+                    fill=255
+                )
+                
+                # Aplicar fundo semi-transparente
+                if fundo_cor.startswith("#") and len(fundo_cor) == 9:
+                    r = int(fundo_cor[1:3], 16)
+                    g = int(fundo_cor[3:5], 16)
+                    b = int(fundo_cor[5:7], 16)
+                    a = int(fundo_cor[7:9], 16)
+                    fundo_rgba = (r, g, b, a)
+                else:
+                    fundo_rgba = (0, 0, 0, 178)
+                
+                fundo_img = Image.new("RGBA", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), fundo_rgba)
+                img.paste(fundo_img, (fundo_x1, fundo_y1), mask)
+                
+                # 🔥 DESENHAR TEXTO BRANCO (SEM BORDAS PRETAS)
+                draw.text((pos_x, pos_y), texto, fill=texto_cor, font=font)
             
             # Obter o tamanho da área disponível para a imagem
             self.popup.update()
-            available_width = self.popup.winfo_width() - 40  # Margens
-            available_height = self.popup.winfo_height() - 250  # Espaço para controles
+            available_width = self.popup.winfo_width() - 40
+            available_height = self.popup.winfo_height() - 250
             
             # Ajustar a imagem para caber na área disponível
             img.thumbnail((available_width, available_height))
@@ -860,6 +890,7 @@ class GravadorDocx:
                     "x": evidencia["timestamp_posicao"]["x"],
                     "y": evidencia["timestamp_posicao"]["y"],
                     "cor": evidencia["timestamp_cor"],
+                    "fundo": evidencia.get("timestamp_fundo", "#000000B2"),
                     "tamanho": evidencia["timestamp_tamanho"],
                     "texto": evidencia["timestamp_texto"]
                 }
@@ -876,36 +907,9 @@ class GravadorDocx:
 
     def aplicar_timestamp_na_imagem(self, caminho_imagem, evidencia_meta):
         """Aplica o timestamp na imagem conforme posição salva"""
-        img = Image.open(caminho_imagem).convert("RGBA")
-        draw = ImageDraw.Draw(img)
-        
-        # Calcular posição em pixels
-        img_width, img_height = img.size
-        pos_x = int(evidencia_meta["timestamp_posicao"]["x"] * img_width)
-        pos_y = int(evidencia_meta["timestamp_posicao"]["y"] * img_height)
-        
-        # Configurações do texto - AUMENTAR TAMANHO DA FONTE
-        texto = evidencia_meta["timestamp_texto"]
-        cor = evidencia_meta["timestamp_cor"]
-        tamanho = 24  # Aumentado de 16 para 24
-        
-        # Usar fonte proporcional
-        try:
-            font = ImageFont.truetype("arial.ttf", tamanho)
-        except:
-            font = ImageFont.load_default()
-        
-        # Adicionar contorno preto para melhor legibilidade
-        draw.text((pos_x-1, pos_y-1), texto, fill='black', font=font)
-        draw.text((pos_x+1, pos_y-1), texto, fill='black', font=font)
-        draw.text((pos_x-1, pos_y+1), texto, fill='black', font=font)
-        draw.text((pos_x+1, pos_y+1), texto, fill='black', font=font)
-        
-        # Texto principal vermelho
-        draw.text((pos_x, pos_y), texto, fill=cor, font=font)
-        
-        # Salvar a imagem (sobrescreve a original)
-        img.save(caminho_imagem)
+        # 🔥 ALTERADO: Usar a nova função moderna
+        if self.modo_captura != "manter":
+            self.aplicar_timestamp_moderno(caminho_imagem, evidencia_meta)
 
     def salvar_comentario(self):
         """Salva o comentário da evidência atual"""
@@ -926,29 +930,29 @@ class GravadorDocx:
 
     # Métodos de navegação
     def primeira_evidencia(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         self.current_index = 0
         self.atualizar_exibicao()
 
     def anterior_evidencia(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         if self.current_index > 0:
             self.current_index -= 1
             self.atualizar_exibicao()
 
     def proxima_evidencia(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         if self.current_index < len(self.prints) - 1:
             self.current_index += 1
             self.atualizar_exibicao()
 
     def ultima_evidencia(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         self.current_index = len(self.prints) - 1
         self.atualizar_exibicao()
 
     def ir_para_especifica(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         if not self.prints:
             return
             
@@ -960,17 +964,16 @@ class GravadorDocx:
             self.atualizar_exibicao()
 
     def editar_evidencia_atual(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         if not self.prints or self.current_index >= len(self.prints):
             return
             
         caminho_print = self.prints[self.current_index]
         self.abrir_editor(caminho_print, self.popup)
-        # Recarrega a imagem após edição
         self.atualizar_exibicao()
 
     def excluir_evidencia_atual(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         if not self.prints or self.current_index >= len(self.prints):
             return
             
@@ -1011,16 +1014,19 @@ class GravadorDocx:
 
     def finalizar_processamento(self):
         """Processa todas as evidências e gera o DOCX"""
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
 
-        # Aplicar timestamp em todas as evidências
-        for caminho_print in self.prints:
-            nome_arquivo = os.path.basename(caminho_print)
-            # Encontrar os metadados da evidência
-            for evidencia in self.metadata["evidencias"]:
-                if evidencia["arquivo"] == nome_arquivo:
-                    self.aplicar_timestamp_na_imagem(caminho_print, evidencia)
-                    break
+        # 🔥 DIFERENÇA CRÍTICA: Só aplica timestamp se for modo "ocultar"
+        if self.modo_captura == "ocultar":
+            # Aplicar timestamp em todas as evidências
+            for caminho_print in self.prints:
+                nome_arquivo = os.path.basename(caminho_print)
+                # Encontrar os metadados da evidência
+                for evidencia in self.metadata["evidencias"]:
+                    if evidencia["arquivo"] == nome_arquivo and evidencia["timestamp_texto"]:
+                        # 🔥 ALTERADO: Usar a nova função moderna
+                        self.aplicar_timestamp_moderno(caminho_print, evidencia)
+                        break
 
         # Agora adicionar as imagens ao DOCX
         for caminho_print in self.prints:
@@ -1036,7 +1042,7 @@ class GravadorDocx:
             self.popup.destroy()
 
     def cancelar_processamento(self):
-        self.salvar_comentario()  # Salva automaticamente ao fechar
+        self.salvar_comentario()
         if messagebox.askyesno("Confirmar Cancelamento", 
                               "Tem certeza que deseja cancelar o processamento?\n\n"
                               "⚠️ TODOS os arquivos de print serão EXCLUÍDOS permanentemente!"):
@@ -1138,7 +1144,7 @@ class GravadorDocx:
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao salvar documento: {str(e)}")
 
-    # ---------- Editor de prints (mantido igual) ----------
+    # ---------- Editor de prints (mantido completo) ----------
     def abrir_editor(self, caminho_print, parent):
         editor = tk.Toplevel(parent)
         editor.title("Editor de Evidência")
@@ -1165,16 +1171,17 @@ class GravadorDocx:
         
         # 🔥 CORREÇÃO: Inicializar a posição do timestamp a partir dos metadados
         if timestamp_data:
-            self.timestamp_pos = (timestamp_data["x"], timestamp_data["y"])
+            self.timestamp_pos = (timestamp_data["x"], timestamp_data["y"]) if self.modo_captura != "manter" else (0, 0)
         else:
-            # Posição padrão se não houver metadados
-            self.timestamp_pos = (0.85, 0.90)
+            # 🔥 ALTERADO: Posição padrão ajustada para mais à esquerda (0.75 em vez de 0.85)
+            self.timestamp_pos = (0.75, 0.90) if self.modo_captura != "manter" else (0, 0)
             # Criar dados básicos se não existirem
             timestamp_data = {
                 "texto": datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
-                "cor": "#FF0000"
+                "cor": "#FFFFFF",
+                "fundo": "#000000B2"
             }
-        
+                
         # Usar a imagem original como base para edição
         self.original_img = img_original
         img_w, img_h = self.original_img.size
@@ -1217,7 +1224,7 @@ class GravadorDocx:
             """Ativa/desativa o modo de mover timestamp"""
             current_state = move_timestamp_var.get()
             move_timestamp_var.set(not current_state)
-            
+
             if move_timestamp_var.get():
                 # Ativa modo mover timestamp
                 move_btn.config(relief=tk.SUNKEN, bg="#4CAF50", fg="white", 
@@ -1311,7 +1318,7 @@ class GravadorDocx:
         undo_btn = tk.Button(tools_frame, text="↩️ Desfazer (Ctrl+Z)", command=undo_action)
         undo_btn.pack(side=tk.LEFT, padx=20)
         
-        # 🔥 CORREÇÃO: FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO DA TELA
+        # 🔥 CORREÇÃO MELHORADA: FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO DA TELA COM FUNDO SEMPRE VISÍVEL
         def refresh_display():
             """Redesenha toda a cena: imagem base + timestamp visual + elementos"""
             # Limpa o canvas
@@ -1322,17 +1329,39 @@ class GravadorDocx:
             self.current_tk_img = ImageTk.PhotoImage(self.display_img)
             self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
             
-            # 🔥 CORREÇÃO: Desenha o timestamp como elemento visual no canvas
+            # 🔥 CORREÇÃO MELHORADA: Desenha o timestamp COM FUNDO SEMPRE VISÍVEL
             if self.timestamp_pos:
                 img_width, img_height = self.original_img.size
                 pos_x = int(self.timestamp_pos[0] * img_width * self.scale_factor)
                 pos_y = int(self.timestamp_pos[1] * img_height * self.scale_factor)
                 
                 texto = timestamp_data["texto"] if timestamp_data else datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                cor = timestamp_data["cor"] if timestamp_data else "#FF0000"
+                cor = timestamp_data["cor"] if timestamp_data else "#FFFFFF"
+                fundo_cor = "#000000"  # 🔥 SEMPRE fundo preto para melhor contraste
                 tamanho = 12  # Tamanho reduzido para visualização no canvas
                 
-                # Desenha o timestamp como texto no canvas (apenas visual)
+                # Usar tkfont para medir o texto
+                font = tkfont.Font(family="Arial", size=tamanho, weight="bold")
+                text_width = font.measure(texto)
+                text_height = font.metrics("linespace")
+                
+                # 🔥 DEFINIR PADDING PARA O FUNDO
+                padding = 8
+                
+                # Coordenadas do fundo
+                fundo_x1 = pos_x - padding
+                fundo_y1 = pos_y - padding
+                fundo_x2 = pos_x + text_width + padding
+                fundo_y2 = pos_y + text_height + padding
+                
+                # 🔥 DESENHAR FUNDO PRETO SEMPRE VISÍVEL
+                self.canvas.create_rectangle(
+                    fundo_x1, fundo_y1, fundo_x2, fundo_y2,
+                    fill=fundo_cor, outline="", stipple="gray50",
+                    tags="timestamp_bg"
+                )
+                
+                # 🔥 DESENHAR TEXTO BRANCO SEMPRE VISÍVEL
                 self.canvas.create_text(
                     pos_x, pos_y, 
                     text=texto, 
@@ -1375,15 +1404,15 @@ class GravadorDocx:
                     x1, y1, x2, y2 = scaled_coords
                     self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
 
-        # 🔥 CORREÇÃO: FUNÇÕES PARA MOVER TIMESTAMP (agora movendo apenas o elemento visual)
+        # 🔥 CORREÇÃO: FUNÇÕES PARA MOVER TIMESTAMP (agora movendo tanto o fundo quanto o texto)
         def start_move_timestamp(event):
             if move_timestamp_var.get():
-                # Verifica se clicou perto do timestamp
-                items = self.canvas.find_overlapping(event.x-5, event.y-5, event.x+5, event.y+5)
+                # Verifica se clicou perto do timestamp (texto OU fundo)
+                items = self.canvas.find_overlapping(event.x-10, event.y-10, event.x+10, event.y+10)
                 timestamp_clicked = False
                 for item in items:
                     tags = self.canvas.gettags(item)
-                    if "timestamp" in tags:
+                    if "timestamp" in tags or "timestamp_bg" in tags:
                         timestamp_clicked = True
                         break
                 
@@ -1598,10 +1627,12 @@ class GravadorDocx:
         
         tk.Button(action_frame, text="💾 Salvar", command=salvar_edicao, width=15).pack(side=tk.LEFT, padx=5)
         
-        move_btn = tk.Button(action_frame, text="📅 Mover Data/Hora", 
+        if self.modo_captura != "manter":
+            move_btn = tk.Button(action_frame, text="📅 Mover Data/Hora", 
                             command=toggle_move_timestamp, relief=tk.RAISED,
-                            cursor="hand2", width=18)
-        move_btn.pack(side=tk.LEFT, padx=5)
+                            cursor="hand2", width=18)    
+            move_btn.pack(side=tk.LEFT, padx=5)
+ 
         
         tk.Button(action_frame, text="❌ Cancelar", command=cancelar_edicao, width=15).pack(side=tk.LEFT, padx=5)
 
@@ -1674,10 +1705,7 @@ if __name__ == "__main__":
     root.title("PrintF - Capturar Evidências")
     root.geometry("500x400")
 
-    # 🔥 GARANTIR QUE A BARRA SEJA RESTAURADA AO FECHAR O APLICATIVO
     def on_closing():
-        if WIN32_AVAILABLE:
-            restaurar_configuracao_barra()
         root.quit()
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
