@@ -1,7 +1,0 @@
-O que contém nessa versão: v07-4
-
-No gravador de evidências: 
-inclusão de timestamp nos prints
-permite mover o timestamp de posição caso esteja cobrindo alguma área importante da evidência
-oculta a barra de tarefas do Windows durante a gravação
-ao cancelar o processo de gravação, na tela de navegação de evidências, limpa os arquivos da pasta de evidências atual
