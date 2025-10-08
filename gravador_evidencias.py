@@ -66,7 +66,7 @@ class GravadorDocx:
         self.current_img_tk = None
         self.comment_entry = None
         self.manter_evidencias = None
-        self.modo_captura = "ocultar"  # Valores: "manter", "ocultar"
+        self.modo_captura = "manter"  # Valores: "manter", "ocultar"
         self.TIMESTAMP_TAMANHO_PADRAO = 24
         self.TIMESTAMP_POSICAO_PADRAO_X = 0.85  # Mais para a direita
         self.TIMESTAMP_POSICAO_PADRAO_Y = 0.92  # Mais para baixo
@@ -562,7 +562,7 @@ class GravadorDocx:
                  font=("Arial", 11, "bold")).pack(anchor="w", pady=(20, 10))
         
         # Variável para os RadioButtons
-        self.modo_captura_var = tk.StringVar(value="ocultar")  # Valor padrão
+        self.modo_captura_var = tk.StringVar(value="manter")  # Valor padrão
         
         # Frame para os RadioButtons
         modo_frame = ttk.Frame(main_frame)
