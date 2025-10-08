@@ -733,26 +733,53 @@ class GravadorDocx:
         if self.listener_mouse:
             self.listener_mouse.stop()
         
+        # 🔥 CORREÇÃO: Iniciar o listener do mouse
         self.listener_mouse = mouse.Listener(on_click=self.on_click)
-        self.listener_mouse.start()        
+        self.listener_mouse.start()
+        
+        print("✅ Gravador iniciado - capturando cliques")
 
     def pausar(self):
         if self.gravando and not self.pausado:
             self.pausado = True
-            messagebox.showinfo("Gravação", "⏸ Gravação pausada!")
+            
+            # 🔥 CORREÇÃO CRÍTICA: Parar o listener do mouse quando pausado
+            if self.listener_mouse:
+                self.listener_mouse.stop()
+                print("⏸️ Listener do mouse PAUSADO")
+            
+            messagebox.showinfo("Gravação", "⏸ Gravação pausada! Cliques NÃO serão capturados.")
 
     def retomar(self):
         if self.gravando and self.pausado:            
+            # 🔥 CORREÇÃO: Mostrar mensagem primeiro e só retomar após o OK
+            messagebox.showinfo("Gravação", "▶ Gravação retomada! Cliques serão capturados novamente.")
+            
+            # Só depois do OK mudar o estado e reiniciar o listener
             self.pausado = False
-            messagebox.showinfo("Gravação", "▶ Gravação retomada!")
+            
+            # 🔥 CORREÇÃO CRÍTICA: Reiniciar o listener do mouse quando retomado
+            if self.listener_mouse:
+                # Parar listener anterior se ainda estiver ativo
+                try:
+                    self.listener_mouse.stop()
+                except:
+                    pass
+                
+                # Criar novo listener
+                self.listener_mouse = mouse.Listener(on_click=self.on_click)
+                self.listener_mouse.start()
+                print("▶️ Listener do mouse RETOMADO")
 
     def finalizar(self):
         if self.gravando:
             self.gravando = False
+            self.pausado = False  # 🔥 Garantir que não fique em estado pausado
             
             if self.listener_mouse:
                 self.listener_mouse.stop()
                 self.listener_mouse = None
+                print("⏹️ Listener do mouse FINALIZADO")
             
             print("Gravação finalizada - usando captura híbrida sem alterações na barra")
             
@@ -764,7 +791,17 @@ class GravadorDocx:
 
     # 🔥 MÉTODO on_click ATUALIZADO PARA USAR CAPTURA INTELIGENTE
     def on_click(self, x, y, button, pressed):
+        # 🔥 CORREÇÃO: Verificação mais robusta do estado
+        if not self.gravando:
+            return
+            
+        if self.pausado:
+            # 🔥 CORREÇÃO: Se estiver pausado, não fazer nada
+            return
+            
         if pressed and self.gravando and not self.pausado:
+            print(f"🎯 Clique capturado em ({x}, {y})")
+            
             # 🔥 USAR CAPTURA INTELIGENTE (multi-monitor)
             screenshot, coordenadas_relativas, metodo = self.capture_inteligente(x, y)
             
@@ -828,10 +865,10 @@ class GravadorDocx:
                 self._salvar_metadata()
                 
                 self.prints.append(caminho_print)
-                print(f"Print salvo: {caminho_print} | Método: {metodo} | Modo: {self.modo_captura}")
+                print(f"✅ Print salvo: {caminho_print} | Método: {metodo} | Modo: {self.modo_captura}")
                 
             except Exception as e:
-                print(f"Erro ao processar captura: {e}")
+                print(f"❌ Erro ao processar captura: {e}")
                 try:
                     # Fallback: salvar screenshot diretamente
                     screenshot.save(caminho_print)
@@ -848,8 +885,9 @@ class GravadorDocx:
                     self._salvar_metadata()
                     
                     self.prints.append(caminho_print)
+                    print(f"✅ Print salvo (fallback): {caminho_print}")
                 except Exception as fallback_error:
-                    print(f"Erro no fallback: {fallback_error}")
+                    print(f"❌ Erro no fallback: {fallback_error}")
 
     # ---------- Navegação e Geração do DOCX ----------
     def gerar_docx(self):
@@ -1429,6 +1467,25 @@ class GravadorDocx:
         # Variável para controle do modo mover timestamp
         move_timestamp_var = tk.BooleanVar(value=False)
         
+        # 🔥 CORREÇÃO: Adicionar as funções que estavam faltando
+        def start_move_timestamp(event):
+            """Inicia o movimento do timestamp"""
+            if move_timestamp_var.get():
+                self.moving_timestamp = True
+                self.timestamp_drag_data["x"] = event.x
+                self.timestamp_drag_data["y"] = event.y
+                self.last_mouse_pos = (event.x, event.y)
+                self.canvas.config(cursor="fleur")  # Cursor de movimento
+
+        def stop_move_timestamp(event):
+            """Finaliza o movimento do timestamp"""
+            if self.moving_timestamp:
+                self.moving_timestamp = False
+                if move_timestamp_var.get():
+                    self.canvas.config(cursor="hand2")
+                else:
+                    self.canvas.config(cursor="cross")
+
         def toggle_move_timestamp():
             """Ativa/desativa o modo de mover timestamp"""
             current_state = move_timestamp_var.get()
