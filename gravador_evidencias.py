@@ -67,6 +67,9 @@ class GravadorDocx:
         self.comment_entry = None
         self.manter_evidencias = None
         self.modo_captura = "ocultar"  # Valores: "manter", "ocultar"
+        self.TIMESTAMP_TAMANHO_PADRAO = 24
+        self.TIMESTAMP_POSICAO_PADRAO_X = 0.85  # Mais para a direita
+        self.TIMESTAMP_POSICAO_PADRAO_Y = 0.92  # Mais para baixo
 
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
@@ -230,24 +233,164 @@ class GravadorDocx:
 
     def capture_work_area_pyautogui(self, x, y):
         """
-        Captura apenas a área de trabalho (SEM barra de tarefas) usando pyautogui
-        Este método é usado no modo "ocultar"
+        Captura apenas a área de trabalho (SEM barra de tarefas) em QUALQUER monitor
         """
         try:
-            # Captura com pyautogui (já captura sem a barra automaticamente)
+            # 🔥 ESTRATÉGIA 1: Win32 API + MSS para multi-monitor
+            if WIN32_AVAILABLE and MSS_AVAILABLE:
+                try:
+                    # Encontrar o monitor que contém o ponto (x, y)
+                    monitor_handle = win32api.MonitorFromPoint((x, y), win32con.MONITOR_DEFAULTTONEAREST)
+                    monitor_info = win32gui.GetMonitorInfo(monitor_handle)
+                    
+                    # 🔥 USAR WORK AREA (área sem barra de tarefas)
+                    work_area = monitor_info["Work"]  # (left, top, right, bottom)
+                    
+                    with mss.mss() as sct:
+                        # Configurar captura específica para o monitor encontrado
+                        monitor_mss = {
+                            "left": work_area[0],
+                            "top": work_area[1], 
+                            "width": work_area[2] - work_area[0],
+                            "height": work_area[3] - work_area[1]
+                        }
+                        
+                        screenshot = sct.grab(monitor_mss)
+                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                        
+                        # Calcular coordenadas relativas à work area do monitor
+                        rel_x = x - work_area[0]
+                        rel_y = y - work_area[1]
+                        
+                        metodo_utilizado = f"Win32+MSS Work Area Monitor {work_area}"
+                        print(f"✅ CAPTURA SEM BARRA - Monitor Work Area {work_area} | Coord: ({rel_x},{rel_y})")
+                        
+                        return img, (rel_x, rel_y), metodo_utilizado
+                        
+                except Exception as e:
+                    print(f"⚠️  Win32+MSS falhou (capturando com alternativa): {e}")
+
+            # 🔥 ESTRATÉGIA 2: MSS puro para multi-monitor (sem Win32)
+            if MSS_AVAILABLE:
+                try:
+                    with mss.mss() as sct:
+                        monitor_encontrado = None
+                        
+                        # Procurar em todos os monitores (exceto o virtual)
+                        for i, monitor in enumerate(sct.monitors[1:], 1):
+                            if (monitor["left"] <= x < monitor["left"] + monitor["width"] and
+                                monitor["top"] <= y < monitor["top"] + monitor["height"]):
+                                monitor_encontrado = monitor
+                                break
+
+                        # Fallback para primeiro monitor se não encontrou
+                        if not monitor_encontrado:
+                            monitor_encontrado = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                            print(f"⚠️  Monitor não encontrado para coordenadas ({x},{y}), usando fallback")
+
+                        # 🔥 ESTIMAR WORK AREA (recortar barra de tarefas)
+                        barra_altura = self.estimativa_segura_barra_tarefas(monitor_encontrado["height"])
+                        work_area = {
+                            "left": monitor_encontrado["left"],
+                            "top": monitor_encontrado["top"], 
+                            "width": monitor_encontrado["width"],
+                            "height": monitor_encontrado["height"] - barra_altura
+                        }
+
+                        # Capturar a work area do monitor
+                        screenshot = sct.grab(work_area)
+                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+                        # Calcular coordenadas relativas ao monitor
+                        rel_x = x - work_area["left"]
+                        rel_y = y - work_area["top"]
+
+                        metodo_utilizado = f"MSS Work Area Monitor {work_area['width']}x{work_area['height']}"
+                        print(f"✅ CAPTURA SEM BARRA - MSS Work Area | Coord: ({rel_x},{rel_y})")
+
+                        return img, (rel_x, rel_y), metodo_utilizado
+                        
+                except Exception as e:
+                    print(f"⚠️  MSS falhou (capturando com alternativa): {e}")
+
+            # 🔥 ESTRATÉGIA 3: ScreenInfo + ImageGrab para multi-monitor
+            try:
+                monitors = screeninfo.get_monitors()
+                target_monitor = None
+                
+                # Encontrar o monitor que contém as coordenadas (x, y)
+                for monitor in monitors:
+                    if (monitor.x <= x < monitor.x + monitor.width and
+                        monitor.y <= y < monitor.y + monitor.height):
+                        target_monitor = monitor
+                        break
+                
+                if target_monitor:
+                    # 🔥 ESTIMAR WORK AREA (recortar barra)
+                    barra_altura = self.estimativa_segura_barra_tarefas(target_monitor.height)
+                    work_area = (
+                        target_monitor.x,
+                        target_monitor.y,
+                        target_monitor.x + target_monitor.width,
+                        target_monitor.y + target_monitor.height - barra_altura
+                    )
+                    
+                    screenshot = ImageGrab.grab(bbox=work_area)
+                    rel_x = x - work_area[0]
+                    rel_y = y - work_area[1]
+                    
+                    metodo_utilizado = f"ScreenInfo Work Area {work_area}"
+                    print(f"✅ CAPTURA SEM BARRA - ScreenInfo Work Area | Coord: ({rel_x},{rel_y})")
+                    
+                    return screenshot, (rel_x, rel_y), metodo_utilizado
+                    
+            except Exception as e:
+                print(f"⚠️  ScreenInfo falhou: {e}")
+
+            # 🔥 ESTRATÉGIA 4: Fallback - recorte manual do monitor primário
+            try:
+                # Capturar tela completa primeiro
+                screenshot_full = pyautogui.screenshot()
+                screen_width, screen_height = screenshot_full.size
+                
+                # Verificar se as coordenadas estão no monitor primário
+                if 0 <= x < screen_width and 0 <= y < screen_height:
+                    # Recortar barra do primário
+                    barra_altura = self.estimativa_segura_barra_tarefas(screen_height)
+                    work_area = (0, 0, screen_width, screen_height - barra_altura)
+                    screenshot = screenshot_full.crop(work_area)
+                    
+                    rel_x = x
+                    rel_y = y
+                    if y > screen_height - barra_altura:
+                        rel_y = screen_height - barra_altura - 5
+                        
+                    metodo_utilizado = f"Fallback Primário Recortado"
+                    print(f"⚠️  CAPTURA SEM BARRA (Primário) | Coord: ({rel_x},{rel_y})")
+                    
+                    return screenshot, (rel_x, rel_y), metodo_utilizado
+                else:
+                    # Coordenadas fora do primário - retornar tela completa como fallback
+                    metodo_utilizado = "Fallback - Tela Completa (fora do primário)"
+                    print(f"❌ Coordenadas ({x},{y}) fora do monitor primário, usando tela completa")
+                    return screenshot_full, (x, y), metodo_utilizado
+                    
+            except Exception as e:
+                print(f"❌ Fallback falhou: {e}")
+
+            # 🔥 ESTRATÉGIA 5: Último recurso
             screenshot = pyautogui.screenshot()
-            
-            metodo_utilizado = "PyAutoGUI - Área de Trabalho (sem barra)"
-            print(f"✅ CAPTURA PYAUTOGUI - Área de Trabalho | Coord: ({x},{y})")
+            metodo_utilizado = "Fallback Extremo - Tela Completa"
+            print(f"❌ TODOS OS MÉTODOS FALHARAM - Retornando tela completa")
             
             return screenshot, (x, y), metodo_utilizado
-            
+
         except Exception as e:
-            print(f"❌ Falha na captura com pyautogui: {e}")
+            print(f"❌ Falha crítica na captura sem barra: {e}")
             # Fallback extremo
             screenshot = pyautogui.screenshot()
-            return screenshot, (x, y), f"Fallback - Erro: {str(e)}"
-
+            return screenshot, (x, y), f"Erro Crítico: {str(e)}"
+        
     def estimativa_segura_barra_tarefas(self, altura_tela):
         """
         Estimativa conservadora da altura da barra de tarefas
@@ -263,20 +406,20 @@ class GravadorDocx:
         
     # 🔥 NOVA FUNÇÃO: APLICAR TIMESTAMP MODERNO COM FUNDO
     def aplicar_timestamp_moderno(self, caminho_imagem, evidencia_meta):
-        """Aplica o timestamp com fundo semi-transparente e texto branco"""
+        """Aplica o timestamp com fundo semi-transparente e texto centralizado"""
         img = Image.open(caminho_imagem).convert("RGBA")
         draw = ImageDraw.Draw(img)
         
         # Calcular posição em pixels
         img_width, img_height = img.size
-        pos_x = int(evidencia_meta["timestamp_posicao"]["x"] * img_width)
-        pos_y = int(evidencia_meta["timestamp_posicao"]["y"] * img_height)
+        pos_x_percent = evidencia_meta["timestamp_posicao"]["x"]
+        pos_y_percent = evidencia_meta["timestamp_posicao"]["y"]
         
         # Configurações do texto
         texto = evidencia_meta["timestamp_texto"]
         texto_cor = evidencia_meta["timestamp_cor"]  # Branco
         fundo_cor = evidencia_meta.get("timestamp_fundo", "#000000B2")  # Preto 70%
-        tamanho = evidencia_meta["timestamp_tamanho"]
+        tamanho = evidencia_meta.get("timestamp_tamanho", self.TIMESTAMP_TAMANHO_PADRAO)
         
         # Converter cor de fundo para RGBA
         if fundo_cor.startswith("#") and len(fundo_cor) == 9:  # Formato #RRGGBBAA
@@ -294,37 +437,69 @@ class GravadorDocx:
         except:
             font = ImageFont.load_default()
         
-        # 🔥 CALCULAR TAMANHO DO TEXTO PARA CRIAR FUNDO
+        # 🔥 CALCULAR TAMANHO DO TEXTO PARA CENTRALIZAR
         bbox = draw.textbbox((0, 0), texto, font=font)
         texto_largura = bbox[2] - bbox[0]
         texto_altura = bbox[3] - bbox[1]
         
         # 🔥 DEFINIR PADDING E CANTOS ARREDONDADOS
-        padding = 10
+        padding_horizontal = 20
+        padding_vertical = 12
         borda_radius = 8
         
-        # Coordenadas do fundo
-        fundo_x1 = pos_x - padding
-        fundo_y1 = pos_y - padding
-        fundo_x2 = pos_x + texto_largura + padding
-        fundo_y2 = pos_y + texto_altura + padding
+        # 🔥 CALCULAR POSIÇÃO FINAL DO FUNDO (centralizado na posição especificada)
+        fundo_largura = texto_largura + (padding_horizontal * 2)
+        fundo_altura = texto_altura + (padding_vertical * 2)
+        
+        # Calcular coordenadas do fundo baseado na posição percentual
+        fundo_x1 = int((img_width * pos_x_percent) - (fundo_largura / 2))  # Centralizado horizontalmente
+        fundo_y1 = int((img_height * pos_y_percent) - (fundo_altura / 2))   # Centralizado verticalmente
+        fundo_x2 = fundo_x1 + fundo_largura
+        fundo_y2 = fundo_y1 + fundo_altura
+        
+        # 🔥 GARANTIR que o fundo não saia dos limites da imagem
+        margem = 10
+        if fundo_x1 < margem:
+            fundo_x1 = margem
+            fundo_x2 = fundo_x1 + fundo_largura
+        elif fundo_x2 > img_width - margem:
+            fundo_x2 = img_width - margem
+            fundo_x1 = fundo_x2 - fundo_largura
+            
+        if fundo_y1 < margem:
+            fundo_y1 = margem
+            fundo_y2 = fundo_y1 + fundo_altura
+        elif fundo_y2 > img_height - margem:
+            fundo_y2 = img_height - margem
+            fundo_y1 = fundo_y2 - fundo_altura
+        
+        # 🔥 CORREÇÃO CRÍTICA: Calcular a posição vertical do texto considerando a métrica da fonte
+        bbox = draw.textbbox((0, 0), texto, font=font)
+        texto_ascendente = -bbox[1]  # A parte "acima" da linha de base
+        texto_largura = bbox[2] - bbox[0]
+        texto_altura_total = bbox[3] - bbox[1]
+
+        # 🔥 CALCULAR POSIÇÃO DO TEXTO (verdadeiramente centralizado no fundo)
+        texto_x = fundo_x1 + padding_horizontal
+        # Ajuste fino para centralização vertical perfeita
+        texto_y = fundo_y1 + (fundo_altura - texto_altura_total) // 2 + texto_ascendente
         
         # 🔥 DESENHAR FUNDO COM CANTOS ARREDONDADOS
         # Criar máscara para cantos arredondados
-        mask = Image.new("L", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), 0)
+        mask = Image.new("L", (fundo_largura, fundo_altura), 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.rounded_rectangle(
-            [0, 0, fundo_x2 - fundo_x1, fundo_y2 - fundo_y1],
+            [0, 0, fundo_largura, fundo_altura],
             radius=borda_radius,
             fill=255
         )
         
         # Aplicar fundo semi-transparente
-        fundo_img = Image.new("RGBA", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), fundo_rgba)
+        fundo_img = Image.new("RGBA", (fundo_largura, fundo_altura), fundo_rgba)
         img.paste(fundo_img, (fundo_x1, fundo_y1), mask)
         
-        # 🔥 DESENHAR TEXTO BRANCO (SEM BORDAS PRETAS)
-        draw.text((pos_x, pos_y), texto, fill=texto_cor, font=font)
+        # 🔥 DESENHAR TEXTO BRANCO VERDADEIRAMENTE CENTRALIZADO
+        draw.text((texto_x, texto_y), texto, fill=texto_cor, font=font)
         
         # Salvar a imagem
         img.save(caminho_imagem)
@@ -624,18 +799,20 @@ class GravadorDocx:
                 if self.modo_captura == "ocultar":
                     metadados_timestamp = {
                         "timestamp_texto": timestamp_texto,
-                        "timestamp_posicao": {"x": 0.75, "y": 0.90},
+                        # 🔥 ALTERADO: Usar posição padrão centralizada no canto inferior direito
+                        "timestamp_posicao": {"x": self.TIMESTAMP_POSICAO_PADRAO_X, "y": self.TIMESTAMP_POSICAO_PADRAO_Y},
                         "timestamp_cor": "#FFFFFF",
                         "timestamp_fundo": "#000000B2",
-                        "timestamp_tamanho": 24,
+                        "timestamp_tamanho": self.TIMESTAMP_TAMANHO_PADRAO,
                     }
                 else:
                     metadados_timestamp = {
                         "timestamp_texto": "",
-                        "timestamp_posicao": {"x": 0.75, "y": 0.90},
+                        # 🔥 ALTERADO: Usar posição padrão centralizada no canto inferior direito
+                        "timestamp_posicao": {"x": self.TIMESTAMP_POSICAO_PADRAO_X, "y": self.TIMESTAMP_POSICAO_PADRAO_Y},
                         "timestamp_cor": "#FFFFFF", 
                         "timestamp_fundo": "#000000B2",
-                        "timestamp_tamanho": 24,
+                        "timestamp_tamanho": self.TIMESTAMP_TAMANHO_PADRAO,
                     }
 
                 self.metadata["evidencias"].append({
@@ -776,7 +953,7 @@ class GravadorDocx:
         
         self.popup.protocol("WM_DELETE_WINDOW", self.cancelar_processamento)
         self.popup.grab_set()
-
+    
     def atualizar_exibicao(self):
         """Atualiza a exibição da evidência atual"""
         if not self.prints or self.current_index >= len(self.prints):
@@ -798,14 +975,14 @@ class GravadorDocx:
                 
                 # Calcular posição em pixels
                 img_width, img_height = img.size
-                pos_x = int(timestamp_data["x"] * img_width)
-                pos_y = int(timestamp_data["y"] * img_height)
+                pos_x_percent = timestamp_data["x"]
+                pos_y_percent = timestamp_data["y"]
                 
                 # Configurações do texto
                 texto = timestamp_data["texto"]
                 texto_cor = timestamp_data["cor"]
                 fundo_cor = timestamp_data.get("fundo", "#000000B2")
-                tamanho = 24
+                tamanho = timestamp_data.get("tamanho", self.TIMESTAMP_TAMANHO_PADRAO)
                 
                 # Usar fonte
                 try:
@@ -813,31 +990,63 @@ class GravadorDocx:
                 except:
                     font = ImageFont.load_default()
                 
-                # 🔥 CALCULAR TAMANHO DO TEXTO PARA CRIAR FUNDO
+                # 🔥 CALCULAR TAMANHO DO TEXTO PARA CENTRALIZAR
                 bbox = draw.textbbox((0, 0), texto, font=font)
                 texto_largura = bbox[2] - bbox[0]
                 texto_altura = bbox[3] - bbox[1]
                 
                 # 🔥 DEFINIR PADDING E CANTOS ARREDONDADOS
-                padding = 10
+                padding_horizontal = 20
+                padding_vertical = 12
                 borda_radius = 8
                 
-                # Coordenadas do fundo
-                fundo_x1 = pos_x - padding
-                fundo_y1 = pos_y - padding
-                fundo_x2 = pos_x + texto_largura + padding
-                fundo_y2 = pos_y + texto_altura + padding
+                # 🔥 CALCULAR POSIÇÃO FINAL DO FUNDO (centralizado na posição especificada)
+                fundo_largura = texto_largura + (padding_horizontal * 2)
+                fundo_altura = texto_altura + (padding_vertical * 2)
                 
+                # Calcular coordenadas do fundo baseado na posição percentual
+                fundo_x1 = int((img_width * pos_x_percent) - (fundo_largura / 2))  # Centralizado horizontalmente
+                fundo_y1 = int((img_height * pos_y_percent) - (fundo_altura / 2))   # Centralizado verticalmente
+                fundo_x2 = fundo_x1 + fundo_largura
+                fundo_y2 = fundo_y1 + fundo_altura
+                
+                # 🔥 GARANTIR que o fundo não saia dos limites da imagem
+                margem = 10
+                if fundo_x1 < margem:
+                    fundo_x1 = margem
+                    fundo_x2 = fundo_x1 + fundo_largura
+                elif fundo_x2 > img_width - margem:
+                    fundo_x2 = img_width - margem
+                    fundo_x1 = fundo_x2 - fundo_largura
+                    
+                if fundo_y1 < margem:
+                    fundo_y1 = margem
+                    fundo_y2 = fundo_y1 + fundo_altura
+                elif fundo_y2 > img_height - margem:
+                    fundo_y2 = img_height - margem
+                    fundo_y1 = fundo_y2 - fundo_altura
+                
+                # 🔥 CORREÇÃO CRÍTICA: Calcular a posição vertical do texto considerando a métrica da fonte
+                bbox = draw.textbbox((0, 0), texto, font=font)
+                texto_ascendente = -bbox[1]  # A parte "acima" da linha de base
+                texto_largura = bbox[2] - bbox[0]
+                texto_altura_total = bbox[3] - bbox[1]
+
+                # 🔥 CALCULAR POSIÇÃO DO TEXTO (verdadeiramente centralizado no fundo)
+                texto_x = fundo_x1 + padding_horizontal
+                # Ajuste fino para centralização vertical perfeita
+                texto_y = fundo_y1 + (fundo_altura - texto_altura_total) // 2 + texto_ascendente
+
                 # 🔥 DESENHAR FUNDO COM CANTOS ARREDONDADOS
                 # Criar máscara para cantos arredondados
-                mask = Image.new("L", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), 0)
+                mask = Image.new("L", (fundo_largura, fundo_altura), 0)
                 mask_draw = ImageDraw.Draw(mask)
                 mask_draw.rounded_rectangle(
-                    [0, 0, fundo_x2 - fundo_x1, fundo_y2 - fundo_y1],
+                    [0, 0, fundo_largura, fundo_altura],
                     radius=borda_radius,
                     fill=255
                 )
-                
+
                 # Aplicar fundo semi-transparente
                 if fundo_cor.startswith("#") and len(fundo_cor) == 9:
                     r = int(fundo_cor[1:3], 16)
@@ -847,12 +1056,12 @@ class GravadorDocx:
                     fundo_rgba = (r, g, b, a)
                 else:
                     fundo_rgba = (0, 0, 0, 178)
-                
-                fundo_img = Image.new("RGBA", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), fundo_rgba)
+
+                fundo_img = Image.new("RGBA", (fundo_largura, fundo_altura), fundo_rgba)
                 img.paste(fundo_img, (fundo_x1, fundo_y1), mask)
-                
-                # 🔥 DESENHAR TEXTO BRANCO (SEM BORDAS PRETAS)
-                draw.text((pos_x, pos_y), texto, fill=texto_cor, font=font)
+
+                # 🔥 DESENHAR TEXTO BRANCO VERDADEIRAMENTE CENTRALIZADO
+                draw.text((texto_x, texto_y), texto, fill=texto_cor, font=font)
             
             # Obter o tamanho da área disponível para a imagem
             self.popup.update()
@@ -891,7 +1100,7 @@ class GravadorDocx:
                     "y": evidencia["timestamp_posicao"]["y"],
                     "cor": evidencia["timestamp_cor"],
                     "fundo": evidencia.get("timestamp_fundo", "#000000B2"),
-                    "tamanho": evidencia["timestamp_tamanho"],
+                    "tamanho": evidencia.get("timestamp_tamanho", self.TIMESTAMP_TAMANHO_PADRAO),
                     "texto": evidencia["timestamp_texto"]
                 }
         return None
@@ -1169,12 +1378,12 @@ class GravadorDocx:
         nome_arquivo = os.path.basename(caminho_print)
         timestamp_data = self.obter_timestamp_metadata(nome_arquivo)
         
-        # 🔥 CORREÇÃO: Inicializar a posição do timestamp a partir dos metadados
+        # 🔥 CORREÇÃO CRÍTICA: Sempre usar a posição salva nos metadados
         if timestamp_data:
-            self.timestamp_pos = (timestamp_data["x"], timestamp_data["y"]) if self.modo_captura != "manter" else (0, 0)
+            self.timestamp_pos = (timestamp_data["x"], timestamp_data["y"])
         else:
-            # 🔥 ALTERADO: Posição padrão ajustada para mais à esquerda (0.75 em vez de 0.85)
-            self.timestamp_pos = (0.75, 0.90) if self.modo_captura != "manter" else (0, 0)
+            # 🔥 Usar a posição padrão definida nas constantes
+            self.timestamp_pos = (self.TIMESTAMP_POSICAO_PADRAO_X, self.TIMESTAMP_POSICAO_PADRAO_Y)
             # Criar dados básicos se não existirem
             timestamp_data = {
                 "texto": datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
@@ -1184,8 +1393,8 @@ class GravadorDocx:
                 
         # Usar a imagem original como base para edição
         self.original_img = img_original
-        img_w, img_h = self.original_img.size
-        
+        img_w, img_h = self.original_img.size        
+     
         # Calcula o fator de escala para exibição
         max_w, max_h = 1000, 700
         scale = min(max_w / img_w, max_h / img_h)
@@ -1211,7 +1420,7 @@ class GravadorDocx:
         self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg="gray")
         self.canvas.pack(padx=5, pady=5)
         self.canvas_img = self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
-        
+            
         # Variáveis de controle
         tool_var = tk.StringVar(value="rectangle")
         color_var = tk.StringVar(value="#FF0000")
@@ -1318,7 +1527,7 @@ class GravadorDocx:
         undo_btn = tk.Button(tools_frame, text="↩️ Desfazer (Ctrl+Z)", command=undo_action)
         undo_btn.pack(side=tk.LEFT, padx=20)
         
-        # 🔥 CORREÇÃO MELHORADA: FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO DA TELA COM FUNDO SEMPRE VISÍVEL
+        # 🔥 CORREÇÃO MELHORADA: FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO DA TELA COM MESMA LÓGICA DO TIMESTAMP
         def refresh_display():
             """Redesenha toda a cena: imagem base + timestamp visual + elementos"""
             # Limpa o canvas
@@ -1329,41 +1538,53 @@ class GravadorDocx:
             self.current_tk_img = ImageTk.PhotoImage(self.display_img)
             self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
             
-            # 🔥 CORREÇÃO MELHORADA: Desenha o timestamp COM FUNDO SEMPRE VISÍVEL
-            if self.timestamp_pos:
+            # 🔥 CORREÇÃO CRÍTICA: Usar a MESMA lógica do aplicar_timestamp_moderno
+            if self.timestamp_pos and self.modo_captura != "manter":
                 img_width, img_height = self.original_img.size
-                pos_x = int(self.timestamp_pos[0] * img_width * self.scale_factor)
-                pos_y = int(self.timestamp_pos[1] * img_height * self.scale_factor)
+                pos_x_percent = self.timestamp_pos[0]
+                pos_y_percent = self.timestamp_pos[1]
                 
                 texto = timestamp_data["texto"] if timestamp_data else datetime.now().strftime('%d/%m/%Y %H:%M:%S')
                 cor = timestamp_data["cor"] if timestamp_data else "#FFFFFF"
-                fundo_cor = "#000000"  # 🔥 SEMPRE fundo preto para melhor contraste
+                fundo_cor = "#000000B2"  # Usar o mesmo fundo semi-transparente
                 tamanho = 12  # Tamanho reduzido para visualização no canvas
                 
-                # Usar tkfont para medir o texto
+                # Usar tkfont para medir o texto (mesma lógica do método principal)
                 font = tkfont.Font(family="Arial", size=tamanho, weight="bold")
                 text_width = font.measure(texto)
                 text_height = font.metrics("linespace")
                 
-                # 🔥 DEFINIR PADDING PARA O FUNDO
-                padding = 8
+                # 🔥 USAR MESMO CÁLCULO DO MÉTODO PRINCIPAL
+                padding_horizontal = 10  # Reduzido para exibição no canvas
+                padding_vertical = 6     # Reduzido para exibição no canvas
                 
-                # Coordenadas do fundo
-                fundo_x1 = pos_x - padding
-                fundo_y1 = pos_y - padding
-                fundo_x2 = pos_x + text_width + padding
-                fundo_y2 = pos_y + text_height + padding
+                # Calcular dimensões do fundo
+                fundo_largura = text_width + (padding_horizontal * 2)
+                fundo_altura = text_height + (padding_vertical * 2)
                 
-                # 🔥 DESENHAR FUNDO PRETO SEMPRE VISÍVEL
+                # Calcular posição (centralizada como no método principal)
+                pos_x = int(pos_x_percent * img_width * self.scale_factor)
+                pos_y = int(pos_y_percent * img_height * self.scale_factor)
+                
+                fundo_x1 = pos_x - (fundo_largura // 2)  # Centralizado horizontalmente
+                fundo_y1 = pos_y - (fundo_altura // 2)   # Centralizado verticalmente
+                fundo_x2 = fundo_x1 + fundo_largura
+                fundo_y2 = fundo_y1 + fundo_altura
+                
+                # Calcular posição do texto (centralizado no fundo)
+                texto_x = fundo_x1 + padding_horizontal
+                texto_y = fundo_y1 + padding_vertical
+                
+                # 🔥 DESENHAR FUNDO PRETO SEMI-TRANSPARENTE
                 self.canvas.create_rectangle(
                     fundo_x1, fundo_y1, fundo_x2, fundo_y2,
-                    fill=fundo_cor, outline="", stipple="gray50",
+                    fill="#000000", outline="", stipple="gray50",  # Stipple para efeito de transparência
                     tags="timestamp_bg"
                 )
                 
-                # 🔥 DESENHAR TEXTO BRANCO SEMPRE VISÍVEL
+                # 🔥 DESENHAR TEXTO BRANCO CENTRALIZADO
                 self.canvas.create_text(
-                    pos_x, pos_y, 
+                    texto_x, texto_y, 
                     text=texto, 
                     fill=cor, 
                     font=("Arial", tamanho, "bold"), 
@@ -1404,25 +1625,6 @@ class GravadorDocx:
                     x1, y1, x2, y2 = scaled_coords
                     self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
 
-        # 🔥 CORREÇÃO: FUNÇÕES PARA MOVER TIMESTAMP (agora movendo tanto o fundo quanto o texto)
-        def start_move_timestamp(event):
-            if move_timestamp_var.get():
-                # Verifica se clicou perto do timestamp (texto OU fundo)
-                items = self.canvas.find_overlapping(event.x-10, event.y-10, event.x+10, event.y+10)
-                timestamp_clicked = False
-                for item in items:
-                    tags = self.canvas.gettags(item)
-                    if "timestamp" in tags or "timestamp_bg" in tags:
-                        timestamp_clicked = True
-                        break
-                
-                if timestamp_clicked:
-                    self.moving_timestamp = True
-                    self.timestamp_drag_data["x"] = event.x
-                    self.timestamp_drag_data["y"] = event.y
-                    self.last_mouse_pos = (event.x, event.y)
-                    self.canvas.config(cursor="fleur")
-
         def on_motion_timestamp(event):
             if self.moving_timestamp and move_timestamp_var.get():
                 current_mouse_pos = (event.x, event.y)
@@ -1434,11 +1636,15 @@ class GravadorDocx:
                     dy = event.y - self.timestamp_drag_data["y"]
                     
                     img_width, img_height = self.original_img.size
-                    new_x = self.timestamp_pos[0] + (dx / self.scale_factor / img_width)
-                    new_y = self.timestamp_pos[1] + (dy / self.scale_factor / img_height)
                     
-                    new_x = max(0.02, min(0.98, new_x))
-                    new_y = max(0.02, min(0.98, new_y))
+                    # 🔥 CORREÇÃO: Calcular a nova posição considerando o deslocamento
+                    # Converter coordenadas de tela para percentuais
+                    new_x = self.timestamp_pos[0] + (dx / (img_width * self.scale_factor))
+                    new_y = self.timestamp_pos[1] + (dy / (img_height * self.scale_factor))
+                    
+                    # Limitar aos limites da imagem
+                    new_x = max(0.05, min(0.95, new_x))  # Deixar margem para o fundo
+                    new_y = max(0.05, min(0.95, new_y))  # Deixar margem para o fundo
                     
                     self.timestamp_pos = (new_x, new_y)
                     refresh_display()
@@ -1612,8 +1818,10 @@ class GravadorDocx:
                     if evidencia["arquivo"] == nome_arquivo:
                         evidencia["timestamp_posicao"]["x"] = self.timestamp_pos[0]
                         evidencia["timestamp_posicao"]["y"] = self.timestamp_pos[1]
+                        # 🔥 GARANTIR que o tamanho sempre exista e seja consistente
+                        evidencia["timestamp_tamanho"] = evidencia.get("timestamp_tamanho", self.TIMESTAMP_TAMANHO_PADRAO)
                         break
-                
+                                
                 self._salvar_metadata()
                 messagebox.showinfo("Sucesso", "Edição salva! A data/hora será aplicada na geração do documento.")
                 editor.destroy()
