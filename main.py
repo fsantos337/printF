@@ -569,7 +569,10 @@ class PrintFApp:
         # Importa e cria módulo dinamicamente
         if module_key not in self.modules:
             try:
-                self.modules[module_key] = self._create_module(module_key)
+                module = self._create_module(module_key)
+                if module is None:
+                    return
+                self.modules[module_key] = module
             except Exception as e:
                 messagebox.showerror("Erro", f"Falha ao carregar módulo: {e}")
                 return
@@ -580,18 +583,28 @@ class PrintFApp:
 
     def _create_module(self, module_key):
         """Cria módulo dinamicamente"""
-        if module_key == "capture":
-            from modules.capture import CaptureModule
-            return CaptureModule(self.root, self.settings)
-        elif module_key == "templates":
-            from modules.template_gen import TemplateGeneratorModule
-            return TemplateGeneratorModule(self.root, self.settings)
-        elif module_key == "evidence":
-            from modules.evidence_gen import EvidenceGeneratorModule
-            return EvidenceGeneratorModule(self.root, self.settings)
-        elif module_key == "cleanup":
-            from modules.cleanup import CleanupModule
-            return CleanupModule(self.root, self.settings)
+        try:
+            if module_key == "capture":
+                # 🔥 CORREÇÃO: Garantir que o módulo capture seja importado corretamente
+                try:
+                    from modules.capture import CaptureModule
+                except ImportError:
+                    # Fallback: tentar importar diretamente
+                    from modules.capture import CaptureModule
+                return CaptureModule(self.root, self.settings)
+            elif module_key == "templates":
+                from modules.template_gen import TemplateGeneratorModule
+                return TemplateGeneratorModule(self.root, self.settings)
+            elif module_key == "evidence":
+                from modules.evidence_gen import EvidenceGeneratorModule
+                return EvidenceGeneratorModule(self.root, self.settings)
+            elif module_key == "cleanup":
+                from modules.cleanup import CleanupModule
+                return CleanupModule(self.root, self.settings)
+        except Exception as e:
+            print(f"❌ Erro ao criar módulo {module_key}: {e}")
+            messagebox.showerror("Erro", f"Falha ao carregar módulo {module_key}: {e}")
+            return None
 
     def _open_settings(self):
         """Abre configurações"""

@@ -11,6 +11,166 @@ class CleanupModule:
         self.pasta_selecionada = ""
         self.arquivos_selecionados = set()
         
+        # Detectar se estamos usando Liquid Glass
+        self.using_liquid_glass = False
+        self._detect_theme()
+        
+    def _detect_theme(self):
+        """Detecta se o tema Liquid Glass está ativo"""
+        try:
+            # Verificar se o estilo está disponível e ativo
+            from modules.styles import LiquidGlassStyle
+            # Verificar configurações do usuário
+            if self.settings.get('theme') == 'liquid_glass':
+                self.using_liquid_glass = True
+                self.style_manager = LiquidGlassStyle
+        except ImportError:
+            # Fallback para estilo padrão
+            self.using_liquid_glass = False
+            self.style_manager = None
+        except Exception as e:
+            print(f"⚠️ Erro ao detectar tema: {e}")
+            self.using_liquid_glass = False
+            self.style_manager = None
+    
+    def _apply_theme_to_widgets(self):
+        """Aplica o tema Liquid Glass aos widgets se estiver ativo"""
+        if not self.using_liquid_glass or not self.style_manager:
+            return
+            
+        try:
+            # Aplicar estilo à janela principal
+            self.style_manager.apply_window_style(self.root)
+            
+            # Configurar cores de fundo para frames
+            self._configure_widget_colors()
+            
+        except Exception as e:
+            print(f"⚠️ Erro ao aplicar tema: {e}")
+    
+    def _configure_widget_colors(self):
+        """Configura cores dos widgets para o tema Liquid Glass"""
+        if not self.using_liquid_glass:
+            return
+            
+        # Configurar cores de fundo
+        bg_color = self.style_manager.BG_PRIMARY
+        card_bg = self.style_manager.BG_CARD
+        text_color = self.style_manager.TEXT_PRIMARY
+        secondary_text = self.style_manager.TEXT_SECONDARY
+        
+        # Aplicar às frames principais
+        self.main_frame.configure(bg=bg_color)
+        self.frame_superior.configure(bg=bg_color)
+        self.frame_selecao.configure(bg=bg_color)
+        self.frame_controles.configure(bg=bg_color)
+        self.frame_botoes_selecao.configure(bg=bg_color)
+        self.frame_lista.configure(bg=bg_color)
+        self.frame_acao.configure(bg=bg_color)
+        self.frame_info.configure(bg=bg_color)
+        self.frame_botoes_acao.configure(bg=bg_color)
+        
+        # Configurar LabelFrame
+        self.frame_lista.configure(bg=bg_color, fg=text_color)
+        
+        # Configurar labels
+        labels = [
+            self.titulo, self.label_info, self.label_docx, 
+            self.label_imagens, self.label_outros, self.label_selecionados
+        ]
+        
+        for label in labels:
+            if hasattr(label, 'configure'):
+                label.configure(bg=bg_color, fg=text_color)
+        
+        # Configurar botões padrão
+        buttons = [
+            self.btn_selecionar, self.btn_sel_todos, self.btn_desel_todos,
+            self.btn_sel_imagens, self.btn_sel_docx, self.btn_voltar
+        ]
+        
+        for button in buttons:
+            if hasattr(button, 'configure'):
+                button.configure(
+                    bg=self.style_manager.BG_CARD,
+                    fg=text_color,
+                    relief="flat",
+                    borderwidth=1
+                )
+        
+        # Configurar botão de excluir selecionados
+        if hasattr(self, 'btn_excluir_selecionados'):
+            self.btn_excluir_selecionados.configure(
+                bg=self.style_manager.ACCENT_ERROR,
+                fg=text_color,
+                relief="flat"
+            )
+        
+        # Configurar entry
+        self.entry_pasta.configure(
+            bg=self.style_manager.BG_SECONDARY,
+                    fg=text_color,
+            insertbackground=text_color,
+            relief="flat"
+        )
+    
+    def _create_styled_button(self, parent, text, command, style_type="glass", **kwargs):
+        """Cria botão com estilo apropriado baseado no tema"""
+        if self.using_liquid_glass and self.style_manager:
+            if style_type == "accent":
+                return self.style_manager.create_accent_button(parent, text, command, **kwargs)
+            elif style_type == "error":
+                btn = self.style_manager.create_glass_button(parent, text, command, **kwargs)
+                btn.configure(style="Error.TButton")
+                return btn
+            else:
+                return self.style_manager.create_glass_button(parent, text, command, **kwargs)
+        else:
+            # Fallback para estilo padrão
+            bg_color = "#f0f0f0"
+            fg_color = "#000000"
+            
+            if style_type == "accent":
+                bg_color = "#3498db"
+                fg_color = "white"
+            elif style_type == "error":
+                bg_color = "#e74c3c"
+                fg_color = "white"
+            
+            return tk.Button(
+                parent, 
+                text=text, 
+                command=command,
+                bg=bg_color,
+                fg=fg_color,
+                relief="raised",
+                **kwargs
+            )
+    
+    def _create_styled_frame(self, parent, **kwargs):
+        """Cria frame com estilo apropriado"""
+        if self.using_liquid_glass and self.style_manager:
+            return self.style_manager.create_glass_frame(parent, **kwargs)
+        else:
+            return tk.Frame(parent, **kwargs)
+    
+    def _create_styled_label(self, parent, text, style_type="glass", **kwargs):
+        """Cria label com estilo apropriado"""
+        if self.using_liquid_glass and self.style_manager:
+            if style_type == "title":
+                return self.style_manager.create_title_label(parent, text, **kwargs)
+            else:
+                return ttk.Label(parent, text=text, style="Glass.TLabel", **kwargs)
+        else:
+            return tk.Label(parent, text=text, **kwargs)
+    
+    def _create_styled_entry(self, parent, **kwargs):
+        """Cria entry com estilo apropriado"""
+        if self.using_liquid_glass and self.style_manager:
+            return self.style_manager.create_glass_entry(parent, **kwargs)
+        else:
+            return tk.Entry(parent, **kwargs)
+
     def selecionar_pasta(self):
         pasta = filedialog.askdirectory(title="Selecione a pasta para limpar arquivos")
         if pasta:
@@ -280,6 +440,9 @@ class CleanupModule:
         self.root.title("PrintF - Limpeza de Arquivos")
         self.root.geometry("900x700")
         
+        # Aplicar tema se estiver ativo
+        self._apply_theme_to_widgets()
+        
         # Centralizar na tela principal
         self.root.transient(self.parent)
         self.root.grab_set()
@@ -289,62 +452,79 @@ class CleanupModule:
         self.var_docx = tk.BooleanVar(value=False)
         
         # Frame principal
-        main_frame = tk.Frame(self.root, padx=20, pady=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        self.main_frame = self._create_styled_frame(self.root, padx=20, pady=20)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Título
-        titulo = tk.Label(main_frame, text="🗑️ PrintF - Limpar Arquivos", font=("Arial", 16, "bold"))
-        titulo.pack(pady=10)
+        self.titulo = self._create_styled_label(self.main_frame, 
+                                              text="🗑️ PrintF - Limpar Arquivos", 
+                                              style_type="title")
+        self.titulo.pack(pady=10)
         
         # Seleção de pasta
-        frame_superior = tk.Frame(main_frame)
-        frame_superior.pack(fill=tk.X, pady=5)
+        self.frame_superior = self._create_styled_frame(self.main_frame)
+        self.frame_superior.pack(fill=tk.X, pady=5)
         
-        tk.Label(frame_superior, text="Pasta:").pack(anchor="w")
+        tk.Label(self.frame_superior, text="Pasta:").pack(anchor="w")
         
-        frame_selecao = tk.Frame(frame_superior)
-        frame_selecao.pack(fill=tk.X, pady=5)
+        self.frame_selecao = self._create_styled_frame(self.frame_superior)
+        self.frame_selecao.pack(fill=tk.X, pady=5)
         
         # Campo de entrada maior e mais próximo do botão
-        self.entry_pasta = tk.Entry(frame_selecao, width=70)
+        self.entry_pasta = self._create_styled_entry(self.frame_selecao, width=70)
         self.entry_pasta.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         
-        btn_selecionar = tk.Button(frame_selecao, text="Procurar", command=self.selecionar_pasta)
-        btn_selecionar.pack(side=tk.RIGHT)
+        self.btn_selecionar = self._create_styled_button(self.frame_selecao, 
+                                                       text="Procurar", 
+                                                       command=self.selecionar_pasta)
+        self.btn_selecionar.pack(side=tk.RIGHT)
         
         # Controles de seleção
-        frame_controles = tk.Frame(main_frame)
-        frame_controles.pack(fill=tk.X, pady=10)
+        self.frame_controles = self._create_styled_frame(self.main_frame)
+        self.frame_controles.pack(fill=tk.X, pady=10)
         
         # Botões de seleção
-        tk.Label(frame_controles, text="Seleção:", font=("Arial", 10)).pack(anchor="w")
+        tk.Label(self.frame_controles, text="Seleção:", font=("Arial", 10)).pack(anchor="w")
         
-        frame_botoes_selecao = tk.Frame(frame_controles)
-        frame_botoes_selecao.pack(fill=tk.X, pady=5)
+        self.frame_botoes_selecao = self._create_styled_frame(self.frame_controles)
+        self.frame_botoes_selecao.pack(fill=tk.X, pady=5)
         
-        self.btn_sel_todos = tk.Button(frame_botoes_selecao, text="✓ Selecionar Todos", 
-                                      command=self.selecionar_todos, state=tk.DISABLED)
+        self.btn_sel_todos = self._create_styled_button(self.frame_botoes_selecao, 
+                                                      text="✓ Selecionar Todos", 
+                                                      command=self.selecionar_todos, 
+                                                      state=tk.DISABLED)
         self.btn_sel_todos.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.btn_desel_todos = tk.Button(frame_botoes_selecao, text="✗ Desmarcar Todos", 
-                                        command=self.desselecionar_todos, state=tk.DISABLED)
+        self.btn_desel_todos = self._create_styled_button(self.frame_botoes_selecao, 
+                                                        text="✗ Desmarcar Todos", 
+                                                        command=self.desselecionar_todos, 
+                                                        state=tk.DISABLED)
         self.btn_desel_todos.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.btn_sel_imagens = tk.Button(frame_botoes_selecao, text="🖼️ Selecionar Imagens", 
-                                        command=lambda: self.selecionar_por_tipo("Imagem"), state=tk.DISABLED)
+        self.btn_sel_imagens = self._create_styled_button(self.frame_botoes_selecao, 
+                                                        text="🖼️ Selecionar Imagens", 
+                                                        command=lambda: self.selecionar_por_tipo("Imagem"), 
+                                                        state=tk.DISABLED)
         self.btn_sel_imagens.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.btn_sel_docx = tk.Button(frame_botoes_selecao, text="📄 Selecionar DOCX", 
-                                     command=lambda: self.selecionar_por_tipo("DOCX"), state=tk.DISABLED)
+        self.btn_sel_docx = self._create_styled_button(self.frame_botoes_selecao, 
+                                                     text="📄 Selecionar DOCX", 
+                                                     command=lambda: self.selecionar_por_tipo("DOCX"), 
+                                                     state=tk.DISABLED)
         self.btn_sel_docx.pack(side=tk.LEFT)
         
         # Lista de arquivos
-        frame_lista = tk.LabelFrame(main_frame, text="Arquivos na Pasta", padx=10, pady=10)
-        frame_lista.pack(fill=tk.BOTH, expand=True, pady=10)
+        self.frame_lista = tk.LabelFrame(self.main_frame, text="Arquivos na Pasta", padx=10, pady=10)
+        self.frame_lista.pack(fill=tk.BOTH, expand=True, pady=10)
         
         # Treeview para listar arquivos
         columns = ("nome", "tipo", "tamanho")
-        self.tree = ttk.Treeview(frame_lista, columns=columns, show="headings", height=12, selectmode="extended")
+        
+        # Usar estilo ttk se Liquid Glass estiver ativo
+        if self.using_liquid_glass:
+            self.tree = ttk.Treeview(self.frame_lista, columns=columns, show="headings", height=12, selectmode="extended")
+        else:
+            self.tree = ttk.Treeview(self.frame_lista, columns=columns, show="headings", height=12, selectmode="extended")
         
         # Configurar colunas
         self.tree.heading("nome", text="Nome do Arquivo")
@@ -356,7 +536,11 @@ class CleanupModule:
         self.tree.column("tamanho", width=100)
         
         # Scrollbar
-        scrollbar = ttk.Scrollbar(frame_lista, orient=tk.VERTICAL, command=self.tree.yview)
+        if self.using_liquid_glass:
+            scrollbar = self.style_manager.create_scrollbar(self.frame_lista, orient=tk.VERTICAL)
+        else:
+            scrollbar = ttk.Scrollbar(self.frame_lista, orient=tk.VERTICAL, command=self.tree.yview)
+        
         self.tree.configure(yscrollcommand=scrollbar.set)
         
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -366,45 +550,48 @@ class CleanupModule:
         self.tree.bind('<<TreeviewSelect>>', self.on_item_select)
         
         # Informações e botões de ação
-        frame_acao = tk.Frame(main_frame)
-        frame_acao.pack(fill=tk.X, pady=10)
+        self.frame_acao = self._create_styled_frame(self.main_frame)
+        self.frame_acao.pack(fill=tk.X, pady=10)
         
         # Informações
-        frame_info = tk.Frame(frame_acao)
-        frame_info.pack(side=tk.LEFT, fill=tk.Y)
+        self.frame_info = self._create_styled_frame(self.frame_acao)
+        self.frame_info.pack(side=tk.LEFT, fill=tk.Y)
         
-        self.label_info = tk.Label(frame_info, text="Total: 0", font=("Arial", 9))
+        self.label_info = self._create_styled_label(self.frame_info, text="Total: 0", font=("Arial", 9))
         self.label_info.pack(anchor="w")
         
-        self.label_docx = tk.Label(frame_info, text="DOCX: 0", font=("Arial", 9), fg="blue")
+        self.label_docx = self._create_styled_label(self.frame_info, text="DOCX: 0", font=("Arial", 9))
         self.label_docx.pack(anchor="w")
         
-        self.label_imagens = tk.Label(frame_info, text="Imagens: 0", font=("Arial", 9), fg="green")
+        self.label_imagens = self._create_styled_label(self.frame_info, text="Imagens: 0", font=("Arial", 9))
         self.label_imagens.pack(anchor="w")
         
-        self.label_outros = tk.Label(frame_info, text="Outros: 0", font=("Arial", 9), fg="gray")
+        self.label_outros = self._create_styled_label(self.frame_info, text="Outros: 0", font=("Arial", 9))
         self.label_outros.pack(anchor="w")
         
-        self.label_selecionados = tk.Label(frame_info, text="Selecionados: 0", font=("Arial", 9, "bold"), fg="red")
+        self.label_selecionados = self._create_styled_label(self.frame_info, text="Selecionados: 0", font=("Arial", 9, "bold"))
         self.label_selecionados.pack(anchor="w")
         
         # Botões de ação
-        frame_botoes_acao = tk.Frame(frame_acao)
-        frame_botoes_acao.pack(side=tk.RIGHT)
+        self.frame_botoes_acao = self._create_styled_frame(self.frame_acao)
+        self.frame_botoes_acao.pack(side=tk.RIGHT)
         
-        self.btn_excluir_selecionados = tk.Button(frame_botoes_acao, 
-                                                text="🗑️ Excluir Selecionados", 
-                                                command=self.excluir_selecionados, 
-                                                state=tk.DISABLED,
-                                                bg="#ff6b6b",
-                                                fg="white",
-                                                font=("Arial", 10, "bold"))
+        self.btn_excluir_selecionados = self._create_styled_button(self.frame_botoes_acao, 
+                                                                text="🗑️ Excluir Selecionados", 
+                                                                command=self.excluir_selecionados, 
+                                                                state=tk.DISABLED,
+                                                                style_type="error")
         self.btn_excluir_selecionados.pack(pady=5)
         
         # Botão voltar
-        btn_voltar = tk.Button(main_frame, text="Voltar ao Menu Principal", 
-                              command=self.hide, width=20)
-        btn_voltar.pack(pady=10)
+        self.btn_voltar = self._create_styled_button(self.main_frame, 
+                                                   text="Voltar ao Menu Principal", 
+                                                   command=self.hide, 
+                                                   width=20)
+        self.btn_voltar.pack(pady=10)
+        
+        # Aplicar configurações de cores após criar todos os widgets
+        self._configure_widget_colors()
 
     def hide(self):
         """Esconde a interface do módulo"""

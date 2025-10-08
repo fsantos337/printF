@@ -15,12 +15,25 @@ import glob
 import json
 import uuid
 
+# Importar sistema de estilos
+try:
+    from modules.styles import LiquidGlassStyle
+    STYLES_AVAILABLE = True
+except ImportError:
+    try:
+        from styles import LiquidGlassStyle
+        STYLES_AVAILABLE = True
+    except ImportError:
+        STYLES_AVAILABLE = False
+        print("⚠️ Estilos Liquid Glass não disponíveis, usando fallback")
+
 class EvidenceGeneratorModule:
     """Módulo completo de geração de documentos de evidências"""
     
     def __init__(self, parent=None, settings=None):
         self.parent = parent  # Referência à janela principal
         self.root = None      # Janela do módulo
+        self.settings = settings or {}
         self.output_dir = os.getcwd()
         self.prints = []            # lista de caminhos das imagens salvas
         self.doc = None
@@ -38,6 +51,121 @@ class EvidenceGeneratorModule:
         self.popup = None
         self.processamento_cancelado = False
         self.saved_file_path = None
+        
+        # Configuração de estilos - CORREÇÃO: Verificar tema nas settings
+        self.using_liquid_glass = STYLES_AVAILABLE and self.settings.get('theme', 'liquid_glass') == 'liquid_glass'
+        self.style_manager = LiquidGlassStyle if STYLES_AVAILABLE else None
+
+    def _apply_styles(self, window):
+        """Aplica estilos à janela"""
+        if self.using_liquid_glass and self.style_manager:
+            try:
+                self.style_manager.apply_window_style(window)
+                return True
+            except Exception as e:
+                print(f"⚠️ Erro ao aplicar estilos: {e}")
+                return False
+        else:
+            # Fallback para estilo padrão
+            window.configure(bg='#f5f5f5')
+            return True
+
+    def _create_styled_frame(self, parent, **kwargs):
+        """Cria frame com estilos aplicados"""
+        if self.using_liquid_glass and self.style_manager:
+            try:
+                return self.style_manager.create_glass_frame(parent, **kwargs)
+            except:
+                # Fallback se houver erro
+                return ttk.Frame(parent, **kwargs)
+        else:
+            return ttk.Frame(parent, **kwargs)
+
+    def _create_styled_button(self, parent, text, command, style_type="glass", **kwargs):
+        """Cria botão com estilos aplicados"""
+        if self.using_liquid_glass and self.style_manager:
+            try:
+                if style_type == "accent":
+                    return self.style_manager.create_accent_button(parent, text, command, **kwargs)
+                else:
+                    return self.style_manager.create_glass_button(parent, text, command, **kwargs)
+            except:
+                # Fallback se houver erro
+                btn = ttk.Button(parent, text=text, command=command, **kwargs)
+                return btn
+        else:
+            # Fallback para botões padrão
+            btn = tk.Button(parent, text=text, command=command, 
+                          bg='#3498db' if style_type == "accent" else '#ecf0f1',
+                          fg='white' if style_type == "accent" else '#2c3e50',
+                          font=("Arial", 10, "bold" if style_type == "accent" else "normal"),
+                          relief="flat",
+                          cursor="hand2",
+                          **kwargs)
+            
+            # Efeitos hover para fallback
+            if style_type == "accent":
+                btn.bind("<Enter>", lambda e: btn.config(bg='#2980b9'))
+                btn.bind("<Leave>", lambda e: btn.config(bg='#3498db'))
+            else:
+                btn.bind("<Enter>", lambda e: btn.config(bg='#d5dbdb'))
+                btn.bind("<Leave>", lambda e: btn.config(bg='#ecf0f1'))
+            
+            return btn
+
+    def _create_styled_label(self, parent, text, style_type="glass", **kwargs):
+        """Cria label com estilos aplicados"""
+        if self.using_liquid_glass and self.style_manager:
+            try:
+                if style_type == "title":
+                    return self.style_manager.create_title_label(parent, text, **kwargs)
+                else:
+                    return ttk.Label(parent, text=text, style="Glass.TLabel", **kwargs)
+            except:
+                # Fallback se houver erro
+                return ttk.Label(parent, text=text, **kwargs)
+        else:
+            # Fallback para labels padrão
+            bg_color = '#f5f5f5'
+            font_config = ("Arial", 14, "bold") if style_type == "title" else ("Arial", 10)
+            return tk.Label(parent, text=text, bg=bg_color, fg='#2c3e50', 
+                          font=font_config, **kwargs)
+
+    def _create_styled_entry(self, parent, **kwargs):
+        """Cria entry com estilos aplicados"""
+        if self.using_liquid_glass and self.style_manager:
+            try:
+                return self.style_manager.create_glass_entry(parent, **kwargs)
+            except:
+                # Fallback se houver erro
+                return ttk.Entry(parent, **kwargs)
+        else:
+            return tk.Entry(parent, bg='white', fg='#2c3e50', 
+                          relief="solid", bd=1, **kwargs)
+
+    def _create_styled_listbox(self, parent, **kwargs):
+        """Cria Listbox com estilos aplicados para Liquid Glass"""
+        if self.using_liquid_glass and self.style_manager:
+            # Para Liquid Glass, usar cores escuras
+            listbox = tk.Listbox(parent, 
+                               bg=self.style_manager.BG_SECONDARY,
+                               fg=self.style_manager.TEXT_PRIMARY,
+                               selectbackground=self.style_manager.ACCENT_PRIMARY,
+                               selectforeground=self.style_manager.TEXT_PRIMARY,
+                               insertbackground=self.style_manager.TEXT_PRIMARY,
+                               relief="flat",
+                               **kwargs)
+        else:
+            # Fallback para estilo padrão
+            listbox = tk.Listbox(parent, 
+                               bg='white', 
+                               fg='#2c3e50',
+                               selectbackground='#3498db',
+                               selectforeground='white',
+                               relief="solid",
+                               bd=1,
+                               **kwargs)
+        return listbox
 
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
@@ -96,28 +224,38 @@ class EvidenceGeneratorModule:
         self.root.geometry("500x300")
         self.root.resizable(False, False)
         
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
+        self._apply_styles(self.root)
+        
         # Centralizar na tela principal
         self.root.transient(self.parent)
         self.root.grab_set()
         
-        main_frame = ttk.Frame(self.root, padding=30)
+        main_frame = self._create_styled_frame(self.root, padding=30)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(main_frame, text="Gerador de Documentos de Evidências", 
-                 font=("Arial", 14, "bold")).pack(pady=20)
+        self._create_styled_label(main_frame, text="Gerador de Documentos de Evidências", 
+                                 style_type="title").pack(pady=20)
         
-        ttk.Label(main_frame, text="Este módulo permite gerar documentos DOCX a partir de evidências capturadas.").pack(pady=10)
+        # Label descritivo
+        if self.using_liquid_glass:
+            desc_label = ttk.Label(main_frame, text="Este módulo permite gerar documentos DOCX a partir de evidências capturadas.",
+                                 style="Glass.TLabel")
+        else:
+            desc_label = tk.Label(main_frame, text="Este módulo permite gerar documentos DOCX a partir de evidências capturadas.",
+                                bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10))
+        desc_label.pack(pady=10)
         
         def iniciar():
             if self.mostrar_janela_configuracao():
                 # O processamento continua automaticamente
                 pass
         
-        ttk.Button(main_frame, text="Iniciar Gerador", 
-                  command=iniciar, width=20).pack(pady=15)
+        self._create_styled_button(main_frame, text="Iniciar Gerador", 
+                                  command=iniciar, style_type="accent", width=20).pack(pady=15)
         
-        ttk.Button(main_frame, text="Voltar ao Menu Principal", 
-                  command=self.hide, width=20).pack(pady=5)
+        self._create_styled_button(main_frame, text="Voltar ao Menu Principal", 
+                                  command=self.hide, style_type="glass", width=20).pack(pady=5)
 
     def hide(self):
         """Esconde a interface do módulo de forma segura"""
@@ -188,23 +326,31 @@ class EvidenceGeneratorModule:
         config_window.geometry("600x500")
         config_window.resizable(False, False)
         
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
+        self._apply_styles(config_window)
+        
         config_window.transient(self.root)
         config_window.grab_set()
         
-        main_frame = ttk.Frame(config_window, padding=20)
+        main_frame = self._create_styled_frame(config_window, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(main_frame, text="PrintF - Configuração de Arquivo", 
-                 font=("Arial", 16, "bold")).pack(pady=10)
+        self._create_styled_label(main_frame, text="PrintF - Configuração de Arquivo", 
+                                 style_type="title").pack(pady=10)
         
         # Seleção de template
-        ttk.Label(main_frame, text="Selecione o template DOCX:").pack(anchor="w", pady=(10, 5))
+        if self.using_liquid_glass:
+            ttk.Label(main_frame, text="Selecione o template DOCX:", 
+                     style="Glass.TLabel").pack(anchor="w", pady=(10, 5))
+        else:
+            tk.Label(main_frame, text="Selecione o template DOCX:", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack(anchor="w", pady=(10, 5))
         
-        template_frame = ttk.Frame(main_frame)
+        template_frame = self._create_styled_frame(main_frame)
         template_frame.pack(fill=tk.X, pady=5)
         
         self.template_var = tk.StringVar()
-        template_entry = ttk.Entry(template_frame, textvariable=self.template_var, width=40)
+        template_entry = self._create_styled_entry(template_frame, textvariable=self.template_var, width=40)
         template_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         
         def selecionar_template():
@@ -215,16 +361,22 @@ class EvidenceGeneratorModule:
             if template_path:
                 self.template_var.set(template_path)
         
-        ttk.Button(template_frame, text="Procurar", command=selecionar_template).pack(side=tk.RIGHT)
+        self._create_styled_button(template_frame, text="Procurar", 
+                                  command=selecionar_template, style_type="glass").pack(side=tk.RIGHT)
         
         # Seleção de diretório de evidências
-        ttk.Label(main_frame, text="Selecione o diretório onde estão as evidências:").pack(anchor="w", pady=(10, 5))
+        if self.using_liquid_glass:
+            ttk.Label(main_frame, text="Selecione o diretório onde estão as evidências:", 
+                     style="Glass.TLabel").pack(anchor="w", pady=(10, 5))
+        else:
+            tk.Label(main_frame, text="Selecione o diretório onde estão as evidências:", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack(anchor="w", pady=(10, 5))
         
-        dir_frame = ttk.Frame(main_frame)
+        dir_frame = self._create_styled_frame(main_frame)
         dir_frame.pack(fill=tk.X, pady=5)
         
         self.dir_var = tk.StringVar()
-        dir_entry = ttk.Entry(dir_frame, textvariable=self.dir_var, width=40)
+        dir_entry = self._create_styled_entry(dir_frame, textvariable=self.dir_var, width=40)
         dir_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         
         def selecionar_diretorio():
@@ -233,20 +385,32 @@ class EvidenceGeneratorModule:
                 self.dir_var.set(dir_path)
                 atualizar_lista_arquivos(dir_path)
         
-        ttk.Button(dir_frame, text="Procurar", command=selecionar_diretorio).pack(side=tk.RIGHT)
+        self._create_styled_button(dir_frame, text="Procurar", 
+                                  command=selecionar_diretorio, style_type="glass").pack(side=tk.RIGHT)
         
         # Frame para exibir a lista de arquivos
-        file_list_frame = ttk.Frame(main_frame)
+        file_list_frame = self._create_styled_frame(main_frame)
         file_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
         
-        file_list_scrollbar = ttk.Scrollbar(file_list_frame)
+        if self.using_liquid_glass:
+            file_list_scrollbar = ttk.Scrollbar(file_list_frame, style="Glass.Vertical.TScrollbar")
+        else:
+            file_list_scrollbar = tk.Scrollbar(file_list_frame)
         file_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.file_listbox = tk.Listbox(file_list_frame, yscrollcommand=file_list_scrollbar.set, height=8)
+        # CORREÇÃO: Usar o método styled para Listbox
+        self.file_listbox = self._create_styled_listbox(file_list_frame, 
+                                                       yscrollcommand=file_list_scrollbar.set, 
+                                                       height=8)
         self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         file_list_scrollbar.config(command=self.file_listbox.yview)
         
-        self.file_count_label = ttk.Label(main_frame, text="Nenhum arquivo PNG encontrado")
+        if self.using_liquid_glass:
+            self.file_count_label = ttk.Label(main_frame, text="Nenhum arquivo PNG encontrado",
+                                             style="Glass.TLabel")
+        else:
+            self.file_count_label = tk.Label(main_frame, text="Nenhum arquivo PNG encontrado",
+                                           bg='#f5f5f5', fg='#2c3e50', font=("Arial", 9))
         self.file_count_label.pack(anchor="w", pady=(0, 10))
         
         def atualizar_lista_arquivos(dir_path):
@@ -265,7 +429,7 @@ class EvidenceGeneratorModule:
                 self.file_count_label.config(text="Nenhum arquivo PNG encontrado")
         
         # Botões
-        btn_frame = ttk.Frame(main_frame)
+        btn_frame = self._create_styled_frame(main_frame)
         btn_frame.pack(pady=20)
         
         def iniciar_geracao():
@@ -295,8 +459,10 @@ class EvidenceGeneratorModule:
             config_window.destroy()            
             self.iniciar_processamento()
         
-        ttk.Button(btn_frame, text="Gerar Documento", command=iniciar_geracao).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancelar", command=config_window.destroy).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(btn_frame, text="Gerar Documento", 
+                                  command=iniciar_geracao, style_type="accent").pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(btn_frame, text="Cancelar", 
+                                  command=config_window.destroy, style_type="glass").pack(side=tk.LEFT, padx=5)
         
         self.root.wait_window(config_window)
         return self.template_path is not None and self.output_dir is not None and self.prints
@@ -358,6 +524,9 @@ class EvidenceGeneratorModule:
         popup.geometry("950x750")
         popup.resizable(False, False)
 
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
+        self._apply_styles(popup)
+
         self.processamento_cancelado = False
         resultado = None
 
@@ -370,19 +539,44 @@ class EvidenceGeneratorModule:
         img = Image.open(caminho_print)
         img.thumbnail((850, 550))
         img_tk = ImageTk.PhotoImage(img)
-        label_img = tk.Label(popup, image=img_tk)
+        
+        # Frame para imagem
+        img_frame = self._create_styled_frame(popup)
+        img_frame.pack(pady=10)
+        
+        # Para a imagem, manter fundo branco para melhor contraste
+        label_img = tk.Label(img_frame, image=img_tk, bg='white')
         label_img.image = img_tk
-        label_img.pack(pady=10)
+        label_img.pack()
 
-        tk.Label(popup, text="Comentário (opcional):").pack()
-        entry = tk.Entry(popup, width=80)
+        # Frame para comentário
+        comment_frame = self._create_styled_frame(popup)
+        comment_frame.pack(pady=5)
+        
+        if self.using_liquid_glass:
+            ttk.Label(comment_frame, text="Comentário (opcional):", 
+                     style="Glass.TLabel").pack()
+        else:
+            tk.Label(comment_frame, text="Comentário (opcional):", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack()
+        
+        entry = self._create_styled_entry(comment_frame, width=80)
         entry.pack(pady=5)
 
         # Mostra informações do arquivo
+        info_frame = self._create_styled_frame(popup)
+        info_frame.pack(pady=5)
+        
         file_info = f"Arquivo: {os.path.basename(caminho_print)}"
         timestamp = datetime.fromtimestamp(os.path.getmtime(caminho_print))
         file_info += f" - {timestamp.strftime('%H:%M:%S')}"
-        tk.Label(popup, text=file_info, font=("Arial", 10)).pack()
+        
+        if self.using_liquid_glass:
+            ttk.Label(info_frame, text=file_info, font=("Arial", 10),
+                     style="Glass.TLabel").pack()
+        else:
+            tk.Label(info_frame, text=file_info, font=("Arial", 10),
+                    bg='#f5f5f5', fg='#2c3e50').pack()
 
         def editar_print():
             self.abrir_editor(caminho_print, popup)
@@ -488,21 +682,24 @@ class EvidenceGeneratorModule:
                 resultado = False  # Usuário cancelou a exclusão
 
         # Frame para botões de ação
-        acoes_frame = tk.Frame(popup)
+        acoes_frame = self._create_styled_frame(popup)
         acoes_frame.pack(pady=10)
 
-        tk.Button(acoes_frame, text="✏ Editar Print", command=editar_print, width=15).pack(side=tk.LEFT, padx=5)
-        tk.Button(acoes_frame, text="Adicionar e Próximo", command=adicionar, width=15).pack(side=tk.LEFT, padx=5)
-        tk.Button(acoes_frame, text="🗑️ Excluir Print", command=excluir_print, width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(acoes_frame, text="✏ Editar Print", 
+                                  command=editar_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(acoes_frame, text="Adicionar e Próximo", 
+                                  command=adicionar, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(acoes_frame, text="🗑️ Excluir Print", 
+                                  command=excluir_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
 
         # Frame para botões de controle
-        controle_frame = tk.Frame(popup)
+        controle_frame = self._create_styled_frame(popup)
         controle_frame.pack(pady=10)
 
-        tk.Button(controle_frame, text="❌ Cancelar", command=cancelar_processamento, 
-                  bg="#ff6b6b", fg="white", width=15).pack(side=tk.LEFT, padx=5)
-        tk.Button(controle_frame, text="✅ Incluir Todos", command=incluir_todos, 
-                  bg="#4ecdc4", fg="white", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(controle_frame, text="❌ Cancelar", 
+                                  command=cancelar_processamento, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(controle_frame, text="✅ Incluir Todos", 
+                                  command=incluir_todos, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
 
         def on_closing():
             cancelar_processamento()
@@ -560,16 +757,19 @@ class EvidenceGeneratorModule:
         editor.title("Editor de Evidência")
         editor.geometry("1200x800")
         
+        # Aplicar estilos
+        self._apply_styles(editor)
+        
         # Frame principal
-        main_frame = tk.Frame(editor)
+        main_frame = self._create_styled_frame(editor)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Frame para ferramentas e opções
-        tools_frame = tk.Frame(main_frame)
+        tools_frame = self._create_styled_frame(main_frame)
         tools_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
         
         # Frame para a área de desenho
-        canvas_frame = tk.Frame(main_frame)
+        canvas_frame = self._create_styled_frame(main_frame)
         canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # Carrega a imagem original
@@ -592,8 +792,9 @@ class EvidenceGeneratorModule:
         self.undo_stack = []  # PILHA PARA DESFAZER AÇÕES
         self.temp_element = None
         
-        # Canvas para a imagem
-        self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg="gray")
+        # Canvas para a imagem - manter fundo cinza para melhor contraste com imagens
+        canvas_bg = 'gray'
+        self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg=canvas_bg)
         self.canvas.pack(padx=5, pady=5)
         self.canvas_img = self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
         
@@ -602,333 +803,231 @@ class EvidenceGeneratorModule:
         color_var = tk.StringVar(value="#FF0000")   # VERMELHO COMO PADRÃO
         width_var = tk.IntVar(value=3)
         
-        # Ferramentas - SUBSTITUINDO RADIOBUTTONS POR ÍCONES EMOJI
-        tk.Label(tools_frame, text="Ferramenta:").pack(side=tk.LEFT, padx=5)
+        # Ferramentas
+        if self.using_liquid_glass:
+            ttk.Label(tools_frame, text="Ferramenta:", style="Glass.TLabel").pack(side=tk.LEFT, padx=5)
+        else:
+            tk.Label(tools_frame, text="Ferramenta:", bg='#f5f5f5', fg='#2c3e50').pack(side=tk.LEFT, padx=5)
         
-        # Frame para os botões de ícone
-        icon_frame = tk.Frame(tools_frame)
-        icon_frame.pack(side=tk.LEFT, padx=5)
+        # Frame para os botões de ferramentas
+        tools_buttons_frame = self._create_styled_frame(tools_frame)
+        tools_buttons_frame.pack(side=tk.LEFT, padx=5)
         
-        # Ícones emoji para cada ferramenta
-        tool_icons = {
-            "rectangle": "⬜",   # Retângulo
-            "circle": "🔴",      # Círculo  
-            "arrow": "👉",       # Seta - Mão apontando
-            "text": "🆎"         # Texto - Botão AB
-        }
-
-        # Função para criar botões com estilo consistente
-        def criar_botao_ferramenta(parent, texto, valor, variavel):
-            btn = tk.Radiobutton(parent, text=texto, font=("Arial", 12), 
-                               variable=variavel, value=valor, indicatoron=0, 
-                               width=3, height=2, relief=tk.RAISED,
-                               cursor="hand2")
-            return btn
-
-        # Cria os botões para cada ferramenta
-        for tool_value, icon in tool_icons.items():
-            btn = criar_botao_ferramenta(icon_frame, icon, tool_value, tool_var)
+        # Ferramentas disponíveis
+        tools = [
+            ("rectangle", "⬜", "Retângulo"),
+            ("circle", "🔴", "Círculo"),
+            ("arrow", "👉", "Seta"),
+            ("text", "🆎", "Texto")
+        ]
+        
+        for tool_value, icon, tooltip in tools:
+            if self.using_liquid_glass:
+                btn = ttk.Radiobutton(tools_buttons_frame, text=icon, variable=tool_var, 
+                                    value=tool_value, style="Glass.TRadiobutton")
+            else:
+                btn = tk.Radiobutton(tools_buttons_frame, text=icon, variable=tool_var,
+                                   value=tool_value, bg='white', indicatoron=0,
+                                   width=3, height=2, relief=tk.RAISED)
             btn.pack(side=tk.LEFT, padx=2)
+        
+        # Cores
+        if self.using_liquid_glass:
+            ttk.Label(tools_frame, text="Cor:", style="Glass.TLabel").pack(side=tk.LEFT, padx=20)
+        else:
+            tk.Label(tools_frame, text="Cor:", bg='#f5f5f5', fg='#2c3e50').pack(side=tk.LEFT, padx=20)
+        
+        colors_frame = self._create_styled_frame(tools_frame)
+        colors_frame.pack(side=tk.LEFT, padx=5)
+        
+        colors = [("#FF0000", "Vermelho"), ("#0000FF", "Azul"), ("#00FF00", "Verde"), 
+                 ("#FFFF00", "Amarelo"), ("#000000", "Preto"), ("#FFFFFF", "Branco")]
+        
+        for color_value, color_name in colors:
+            if self.using_liquid_glass:
+                btn = ttk.Radiobutton(colors_frame, text="⬤", variable=color_var, 
+                                    value=color_value, style="Glass.TRadiobutton")
+            else:
+                btn = tk.Radiobutton(colors_frame, text="⬤", variable=color_var,
+                                   value=color_value, bg='white', indicatoron=0,
+                                   width=2, height=2, relief=tk.RAISED,
+                                   fg=color_value)
+            btn.pack(side=tk.LEFT, padx=2)
+        
+        # Espessura
+        if self.using_liquid_glass:
+            ttk.Label(tools_frame, text="Espessura:", style="Glass.TLabel").pack(side=tk.LEFT, padx=20)
+        else:
+            tk.Label(tools_frame, text="Espessura:", bg='#f5f5f5', fg='#2c3e50').pack(side=tk.LEFT, padx=20)
+        
+        width_scale = tk.Scale(tools_frame, from_=1, to=10, variable=width_var, 
+                              orient=tk.HORIZONTAL, length=100, showvalue=True)
+        width_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Botões de ação do editor
+        action_frame = self._create_styled_frame(tools_frame)
+        action_frame.pack(side=tk.RIGHT, padx=10)
+        
+        self._create_styled_button(action_frame, text="↶ Desfazer", 
+                                  command=self.desfazer_acao, style_type="glass").pack(side=tk.LEFT, padx=2)
+        self._create_styled_button(action_frame, text="Salvar", 
+                                  command=lambda: self.salvar_edicao(caminho_print, editor), 
+                                  style_type="accent").pack(side=tk.LEFT, padx=2)
+        self._create_styled_button(action_frame, text="Cancelar", 
+                                  command=editor.destroy, style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        # Variáveis para controle de desenho
+        self.start_x = None
+        self.start_y = None
+        self.current_element = None
+        
+        # Bind eventos do canvas
+        self.canvas.bind("<Button-1>", lambda e: self.iniciar_desenho(e, tool_var.get()))
+        self.canvas.bind("<B1-Motion>", lambda e: self.desenhar(e, tool_var.get()))
+        self.canvas.bind("<ButtonRelease-1>", lambda e: self.finalizar_desenho(e, tool_var.get(), color_var.get(), width_var.get()))
+        
+        # Centralizar
+        editor.transient(parent)
+        editor.grab_set()
 
-        # Destacar o botão do retângulo (selecionado por padrão)
-        for widget in icon_frame.winfo_children():
-            if isinstance(widget, tk.Radiobutton) and widget.cget("value") == "rectangle":
-                widget.config(relief=tk.SUNKEN, bg="#e3f2fd")  # Azul claro para selecionado
-                break
-
-        # Função para atualizar a aparição dos botões
-        def update_button_appearance(*args):
-            selected_tool = tool_var.get()
-            for widget in icon_frame.winfo_children():
-                if isinstance(widget, tk.Radiobutton):
-                    if widget.cget("value") == selected_tool:
-                        widget.config(relief=tk.SUNKEN, bg="#e3f2fd")  # Selecionado
-                    else:
-                        widget.config(relief=tk.RAISED, bg="SystemButtonFace")  # Normal
-
-        tool_var.trace("w", update_button_appearance)
+    def iniciar_desenho(self, event, tool):
+        self.start_x = event.x
+        self.start_y = event.y
         
-        # Controles de cor and espessura - APENAS CORES ESSENCIAIS
-        color_frame = tk.Frame(tools_frame)
-        color_frame.pack(side=tk.LEFT, padx=20)
-        
-        tk.Label(color_frame, text="Cor:").pack(side=tk.LEFT)
-        
-        # Paleta de cores reduzida (apenas as essenciais)
-        colors = ["#FF0000", "#00FF00", "#FFFF00", "#000000", "#FFFFFF"]
-        color_buttons_frame = tk.Frame(color_frame)
-        color_buttons_frame.pack(side=tk.LEFT, padx=5)
-        
-        for color in colors:
-            btn = tk.Button(color_buttons_frame, bg=color, width=2, height=1, 
-                           command=lambda c=color: self.set_color(color_var, c, color_preview))
-            btn.pack(side=tk.LEFT, padx=1)
-        
-        # Botão para cor personalizada
-        custom_btn = tk.Button(color_frame, text="Personalizada", 
-                              command=lambda: self.choose_custom_color(editor, color_var, color_preview))
-        custom_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Preview de cor
-        color_preview = tk.Frame(color_frame, width=30, height=20, bg=color_var.get())
-        color_preview.pack(side=tk.LEFT, padx=5)
-        
-        # Controle de espessura
-        width_frame = tk.Frame(tools_frame)
-        width_frame.pack(side=tk.LEFT, padx=20)
-        
-        tk.Label(width_frame, text="Espessura:").pack(side=tk.LEFT)
-        tk.Scale(width_frame, from_=1, to=10, variable=width_var, orient=tk.HORIZONTAL, 
-                length=100, showvalue=1).pack(side=tk.LEFT, padx=5)
-        
-        # BOTÃO DESFAZER
-        def undo_action():
-            if self.elements:  # Se houver elementos para desfazer
-                # Remove o último elemento and adiciona à pilha de desfazer
-                removed_element = self.elements.pop()
-                self.undo_stack.append(removed_element)
-                refresh_display()
-        
-        undo_btn = tk.Button(tools_frame, text="↩️ Desfazer (Ctrl+Z)", command=undo_action)
-        undo_btn.pack(side=tk.LEFT, padx=20)
-        
-        # Variáveis para desenho
-        start_xy = {"x": None, "y": None}
-        
-        def refresh_display():
-            # Redesenha todos os elementos
-            self.canvas.delete("all")
-            self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
-            
-            for element in self.elements:
-                elem_type, coords, color, width, text = element
-                scaled_coords = [int(c * self.scale_factor) for c in coords]
+        if tool == "text":
+            # Para texto, pede o texto via dialog
+            texto = simpledialog.askstring("Texto", "Digite o texto:", parent=self.root)
+            if texto:
+                # Converte coordenadas para escala original
+                orig_x = int(event.x / self.scale_factor)
+                orig_y = int(event.y / self.scale_factor)
                 
-                if elem_type == "circle":
-                    x1, y1, x2, y2 = scaled_coords
-                    self.canvas.create_oval(x1, y1, x2, y2, outline=color, width=width)
-                elif elem_type == "rectangle":
-                    x1, y1, x2, y2 = scaled_coords
-                    self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
-                elif elem_type == "arrow":
-                    x1, y1, x2, y2 = scaled_coords
-                    self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
-                elif elem_type == "text":
-                    x, y = scaled_coords
-                    self.canvas.create_text(x, y, text=text, fill=color, font=("Arial", 12), anchor="nw")
+                element_data = {
+                    "type": "text",
+                    "text": texto,
+                    "x": orig_x,
+                    "y": orig_y,
+                    "color": "#FF0000",  # Vermelho padrão
+                    "size": 20
+                }
+                self.elements.append(element_data)
+                self.aplicar_elemento_na_imagem(element_data)
+                self.atualizar_canvas()
+        else:
+            # Para outras ferramentas, inicia desenho temporário
+            if tool == "rectangle":
+                self.current_element = self.canvas.create_rectangle(
+                    self.start_x, self.start_y, self.start_x, self.start_y,
+                    outline="#FF0000", width=3
+                )
+            elif tool == "circle":
+                self.current_element = self.canvas.create_oval(
+                    self.start_x, self.start_y, self.start_x, self.start_y,
+                    outline="#FF0000", width=3
+                )
+            elif tool == "arrow":
+                self.current_element = self.canvas.create_line(
+                    self.start_x, self.start_y, self.start_x, self.start_y,
+                    arrow=tk.LAST, fill="#FF0000", width=3
+                )
+
+    def desenhar(self, event, tool):
+        if self.current_element and tool != "text":
+            if tool in ["rectangle", "circle"]:
+                self.canvas.coords(self.current_element, self.start_x, self.start_y, event.x, event.y)
+            elif tool == "arrow":
+                self.canvas.coords(self.current_element, self.start_x, self.start_y, event.x, event.y)
+
+    def finalizar_desenho(self, event, tool, color, width):
+        if self.current_element and tool != "text":
+            # Salva o elemento
+            coords = self.canvas.coords(self.current_element)
+            # Converte coordenadas para escala original
+            orig_coords = [int(coord / self.scale_factor) for coord in coords]
             
-            # Desenha elemento temporário durante a criação
-            if self.temp_element:
-                elem_type, coords, color, width, text = self.temp_element
-                scaled_coords = [int(c * self.scale_factor) for c in coords]
-                
-                if elem_type == "circle":
-                    x1, y1, x2, y2 = scaled_coords
-                    self.canvas.create_oval(x1, y1, x2, y2, outline=color, width=width)
-                elif elem_type == "rectangle":
-                    x1, y1, x2, y2 = scaled_coords
-                    self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
-                elif elem_type == "arrow":
-                    x1, y1, x2, y2 = scaled_coords
-                    self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
+            element_data = {
+                "type": tool,
+                "coords": orig_coords,
+                "color": color,
+                "width": width
+            }
+            self.elements.append(element_data)
+            self.undo_stack.append(element_data.copy())
+            
+            # Aplica na imagem
+            self.aplicar_elemento_na_imagem(element_data)
+            self.atualizar_canvas()
+            
+            self.current_element = None
+
+    def aplicar_elemento_na_imagem(self, element):
+        draw = ImageDraw.Draw(self.editing_img)
         
-        def draw_arrow_on_canvas(x1, y1, x2, y2, color, width):
-            # Desenha a linha da seta
-            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+        if element["type"] == "rectangle":
+            x1, y1, x2, y2 = element["coords"]
+            draw.rectangle([x1, y1, x2, y2], outline=element["color"], width=element["width"])
+        
+        elif element["type"] == "circle":
+            x1, y1, x2, y2 = element["coords"]
+            draw.ellipse([x1, y1, x2, y2], outline=element["color"], width=element["width"])
+        
+        elif element["type"] == "arrow":
+            x1, y1, x2, y2 = element["coords"]
+            draw.line([x1, y1, x2, y2], fill=element["color"], width=element["width"])
             
-            # Calcula o ângulo da seta
+            # Adiciona ponta da seta
+            arrow_size = element["width"] * 3
             angle = math.atan2(y2 - y1, x2 - x1)
             
-            # Desenha a ponta da seta (triângulo)
-            arrow_size = 15
-            x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
-            y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
-            x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
-            y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
+            ax1 = x2 - arrow_size * math.cos(angle - math.pi/6)
+            ay1 = y2 - arrow_size * math.sin(angle - math.pi/6)
+            ax2 = x2 - arrow_size * math.cos(angle + math.pi/6)
+            ay2 = y2 - arrow_size * math.sin(angle + math.pi/6)
             
-            self.canvas.create_polygon(x2, y2, x3, y3, x4, y4, fill=color, outline=color)
+            draw.line([x2, y2, ax1, ay1], fill=element["color"], width=element["width"])
+            draw.line([x2, y2, ax2, ay2], fill=element["color"], width=element["width"])
         
-        def on_button_press(event):
-            start_xy["x"], start_xy["y"] = event.x, event.y
-        
-        def on_motion(event):
-            if start_xy["x"] is not None:
-                # Desenho em tempo real
-                sx, sy = start_xy["x"], start_xy["y"]
-                ex, ey = event.x, event.y
-                
-                # Converte para coordenadas da imagem original
-                ix1, iy1 = int(sx / self.scale_factor), int(sy / self.scale_factor)
-                ix2, iy2 = int(ex / self.scale_factor), int(ey / self.scale_factor)
-                
-                tool = tool_var.get()
-                color = color_var.get()
-                width = width_var.get()
-                
-                if tool == "circle":
-                    radius = int(((ix2 - ix1)**2 + (iy2 - iy1)**2)**0.5)
-                    self.temp_element = ("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, "")
-                elif tool == "rectangle":
-                    # Garante que x2 >= x1 and y2 >= y1
-                    x1_norm = min(ix1, ix2)
-                    y1_norm = min(iy1, iy2)
-                    x2_norm = max(ix1, ix2)
-                    y2_norm = max(iy1, iy2)
-                    self.temp_element = ("rectangle", [x1_norm, y1_norm, x2_norm, y2_norm], color, width, "")
-                elif tool == "arrow":
-                    self.temp_element = ("arrow", [ix1, iy1, ix2, iy2], color, width, "")
-                
-                refresh_display()
-        
-        def on_button_release(event):
-            if start_xy["x"] is not None:
-                # Converte coordenadas da tela para coordenadas da imagem original
-                sx, sy = start_xy["x"], start_xy["y"]
-                ex, ey = event.x, event.y
-                
-                ix1, iy1 = int(sx / self.scale_factor), int(sy / self.scale_factor)
-                ix2, iy2 = int(ex / self.scale_factor), int(ey / self.scale_factor)
-                
-                tool = tool_var.get()
-                color = color_var.get()
-                width = width_var.get()
-                
-                # Limpa a pilha de desfazer quando uma nova ação é realizada
-                self.undo_stack.clear()
-                
-                if tool == "circle":
-                    radius = int(((ix2 - ix1)**2 + (iy2 - iy1)**2)**0.5)
-                    self.elements.append(("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, ""))
-                
-                elif tool == "rectangle":
-                    # Garante que x2 >= x1 and y2 >= y1
-                    x1_norm = min(ix1, ix2)
-                    y1_norm = min(iy1, iy2)
-                    x2_norm = max(ix1, ix2)
-                    y2_norm = max(iy1, iy2)
-                    self.elements.append(("rectangle", [x1_norm, y1_norm, x2_norm, y2_norm], color, width, ""))
-                
-                elif tool == "arrow":
-                    self.elements.append(("arrow", [ix1, iy1, ix2, iy2], color, width, ""))
-                
-                elif tool == "text":
-                    # Para texto, pede o conteúdo e adiciona na posição clicada
-                    text = simpledialog.askstring("Texto", "Digite o texto:", parent=editor)
-                    if text:
-                        self.elements.append(("text", [ix1, iy1], color, width, text))
-                        # Atualiza a visualização para mostrar o texto imediatamente
-                        refresh_display()
-                
-                self.temp_element = None
-                refresh_display()
-            
-            start_xy["x"], start_xy["y"] = None, None
-        
-        # BIND DO CTRL+Z (atalho global dentro do editor)
-        def on_key_press(event):
-            undo_action()
+        elif element["type"] == "text":
+            try:
+                font = ImageFont.truetype("arial.ttf", element["size"])
+            except:
+                font = ImageFont.load_default()
+            draw.text((element["x"], element["y"]), element["text"], fill=element["color"], font=font)
 
-        editor.bind_all('<Control-z>', on_key_press)
-        editor.bind_all('<Control-Z>', on_key_press)
-        
-        # Bind events para o canvas
-        self.canvas.bind("<Button-1>", on_button_press)
-        self.canvas.bind("<B1-Motion>", on_motion)
-        self.canvas.bind("<ButtonRelease-1>", on_button_release)
-        
-        # Para ferramenta de texto, muda o cursor
-        def update_cursor(*args):
-            if tool_var.get() == "text":
-                self.canvas.config(cursor="xterm")
-            else:
-                self.canvas.config(cursor="cross")
-        
-        tool_var.trace("w", update_cursor)
-        
-        # Botões de ação
-        action_frame = tk.Frame(editor)
-        action_frame.pack(side=tk.BOTTOM, pady=10)
-        
-        def salvar_imagem():
-            # Cria uma cópia da imagem original para aplicar as anotações
-            final_img = self.original_img.copy()
-            draw = ImageDraw.Draw(final_img)
+    def atualizar_canvas(self):
+        self.display_img = self.editing_img.resize(
+            (int(self.editing_img.width * self.scale_factor), 
+             int(self.editing_img.height * self.scale_factor)), 
+            Image.LANCZOS
+        )
+        self.current_tk_img = ImageTk.PhotoImage(self.display_img)
+        self.canvas.itemconfig(self.canvas_img, image=self.current_tk_img)
+
+    def desfazer_acao(self):
+        if self.undo_stack:
+            ultimo_elemento = self.undo_stack.pop()
+            if ultimo_elemento in self.elements:
+                self.elements.remove(ultimo_elemento)
             
-            # Aplica todas as anotações
+            # Recria a imagem
+            self.editing_img = self.original_img.copy()
             for element in self.elements:
-                elem_type, coords, color, width, text = element
-                
-                if elem_type == "circle":
-                    x1, y1, x2, y2 = coords
-                    draw.ellipse([x1, y1, x2, y2], outline=color, width=width)
-                
-                elif elem_type == "rectangle":
-                    x1, y1, x2, y2 = coords
-                    draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
-                
-                elif elem_type == "arrow":
-                    x1, y1, x2, y2 = coords
-                    # Desenha a linha
-                    draw.line([x1, y1, x2, y2], fill=color, width=width)
-                    
-                    # Desenha a ponta da seta (simplificado)
-                    angle = math.atan2(y2 - y1, x2 - x1)
-                    arrow_size = 15
-                    x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
-                    y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
-                    x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
-                    y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
-                    
-                    draw.polygon([x2, y2, x3, y3, x4, y4], fill=color, outline=color)
-                
-                elif elem_type == "text":
-                    x, y = coords
-                    # Usa uma fonte padrão
-                    try:
-                        font = ImageFont.truetype("arial.ttf", 20)
-                    except:
-                        font = ImageFont.load_default()
-                    draw.text((x, y), text, fill=color, font=font)
+                self.aplicar_elemento_na_imagem(element)
             
-            # Salva a imagem editada (sobrescreve a original)
-            final_img.save(caminho_print)
-            messagebox.showinfo("Sucesso", "Imagem salva com sucesso!")
+            self.atualizar_canvas()
+
+    def salvar_edicao(self, caminho_print, editor):
+        try:
+            if self.editing_img.mode == 'RGBA':
+                save_img = self.editing_img.convert('RGB')
+            else:
+                save_img = self.editing_img
+            
+            save_img.save(caminho_print, "PNG")
+            messagebox.showinfo("Sucesso", "Evidência editada salva com sucesso!")
             editor.destroy()
-            parent.destroy()  # Fecha também a janela de comentário
-        
-        def cancelar_edicao():
-            if messagebox.askyesno("Confirmar", "Descartar todas as alterações?"):
-                editor.destroy()
-        
-        tk.Button(action_frame, text="💾 Salvar", command=salvar_imagem, width=15).pack(side=tk.LEFT, padx=10)
-        tk.Button(action_frame, text="❌ Cancelar", command=cancelar_edicao, width=15).pack(side=tk.LEFT, padx=10)
-
-    def set_color(self, color_var, color, preview_widget):
-        color_var.set(color)
-        preview_widget.config(bg=color)
-
-    def choose_custom_color(self, parent, color_var, preview_widget):
-        color = colorchooser.askcolor(initialcolor=color_var.get(), parent=parent)[1]
-        if color:
-            color_var.set(color)
-            preview_widget.config(bg=color)
-
-    def draw_arrow_on_canvas(self, x1, y1, x2, y2, color, width):
-        """Desenha uma seta no canvas"""
-        # Desenha a linha da seta
-        self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
-        
-        # Calcula o ângulo da seta
-        angle = math.atan2(y2 - y1, x2 - x1)
-        
-        # Desenha a ponta da seta (triângulo)
-        arrow_size = 15
-        x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
-        y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
-        x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
-        y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
-        
-        self.canvas.create_polygon(x2, y2, x3, y3, x4, y4, fill=color, outline=color)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao salvar evidência editada: {str(e)}")
 
 
 # Modo de execução independente (para teste)
@@ -938,28 +1037,46 @@ if __name__ == "__main__":
     root.geometry("400x200")
     root.resizable(False, False)
     
+    # Aplicar estilos básicos mesmo no modo independente
+    try:
+        root.configure(bg='#f5f5f5')
+    except:
+        pass
+    
     # Centraliza a janela
     root.eval('tk::PlaceWindow . center')
     
     # Frame principal
-    main_frame = ttk.Frame(root, padding=30)
+    main_frame = tk.Frame(root, bg='#f5f5f5', padx=30, pady=30)
     main_frame.pack(fill=tk.BOTH, expand=True)
     
     # Título
-    ttk.Label(main_frame, text="PrintF - Gerador de Evidências", 
-             font=("Arial", 16, "bold")).pack(pady=20)
+    title_label = tk.Label(main_frame, text="PrintF - Gerador de Evidências", 
+                         font=("Arial", 16, "bold"), bg='#f5f5f5', fg='#2c3e50')
+    title_label.pack(pady=20)
     
     # Botão para iniciar
     def iniciar_gerador():
-        gerador = EvidenceGeneratorModule()
-        gerador.root = root  # Define a root para funcionar independentemente
-        if gerador.mostrar_janela_configuracao():
-            pass
+        gerador = EvidenceGeneratorModule(root)
+        gerador.show()
     
-    ttk.Button(main_frame, text="Iniciar Gerador de Evidências", 
-              command=iniciar_gerador, width=25).pack(pady=10)
+    start_btn = tk.Button(main_frame, text="Iniciar Gerador de Evidências", 
+                         command=iniciar_gerador, width=25,
+                         bg='#3498db', fg='white', font=("Arial", 12, "bold"),
+                         relief="flat", cursor="hand2")
+    start_btn.pack(pady=10)
+    
+    # Efeitos hover
+    start_btn.bind("<Enter>", lambda e: start_btn.config(bg='#2980b9'))
+    start_btn.bind("<Leave>", lambda e: start_btn.config(bg='#3498db'))
     
     # Botão para sair
-    ttk.Button(main_frame, text="Sair", command=root.quit, width=15).pack(pady=10)
+    exit_btn = tk.Button(main_frame, text="Sair", command=root.quit, width=15,
+                        bg='#e74c3c', fg='white', font=("Arial", 10),
+                        relief="flat", cursor="hand2")
+    exit_btn.pack(pady=10)
+    
+    exit_btn.bind("<Enter>", lambda e: exit_btn.config(bg='#c0392b'))
+    exit_btn.bind("<Leave>", lambda e: exit_btn.config(bg='#e74c3c'))
     
     root.mainloop()
