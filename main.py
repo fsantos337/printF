@@ -9,24 +9,46 @@ class PrintFApp:
     
     def __init__(self):
         self.root = tk.Tk()
+        
+        # Carregar configurações PRIMEIRO
+        self.settings = self._load_settings()
+        
+        # Configurar janela principal
         self._setup_main_window()
         
         # Módulos
         self.modules = {}
         self.current_module = None
         
-        # Configurações
-        self.settings = self._load_settings()
-        
         # Configurar estilo
         self._setup_styles()
+        
+        # Bindings para responsividade
+        self._setup_bindings()
         
     def _setup_main_window(self):
         """Configura a janela principal"""
         self.root.title("PrintF - Sistema Completo de Evidências")
-        self.root.geometry("500x600")
-        self.root.configure(bg='#f5f5f5')
-        self.root.minsize(450, 550)
+        
+        # Usar tamanho salvo ou padrão
+        width = self.settings.get('window_size', {}).get('width', 1000)
+        height = self.settings.get('window_size', {}).get('height', 700)
+        self.root.geometry(f"{width}x{height}")
+        
+        # Posição salva ou centralizada
+        if 'window_position' in self.settings:
+            x = self.settings['window_position']['x']
+            y = self.settings['window_position']['y']
+            self.root.geometry(f"+{x}+{y}")
+        else:
+            self.root.eval('tk::PlaceWindow . center')
+        
+        # Tamanho mínimo
+        from config import APP_CONFIG
+        self.root.minsize(
+            APP_CONFIG.UI_SETTINGS['min_width'], 
+            APP_CONFIG.UI_SETTINGS['min_height']
+        )
         
         # Ícone (se disponível)
         self._set_window_icon()
@@ -45,7 +67,53 @@ class PrintFApp:
             pass
 
     def _setup_styles(self):
-        """Configura estilos visuais"""
+        """Configura estilos visuais baseados no tema selecionado"""
+        self.style_manager = None
+        self.using_liquid_glass = False
+        
+        try:
+            # Tentar importar do módulo styles
+            from modules.styles import LiquidGlassStyle
+            
+            # Verificar se o tema está habilitado nas configurações
+            # FORÇAR liquid_glass inicialmente para teste
+            theme_to_use = self.settings.get('theme', 'liquid_glass')
+            if theme_to_use == 'liquid_glass':
+                # Aplicar estilo Liquid Glass
+                LiquidGlassStyle.apply_window_style(self.root)
+                self.style_manager = LiquidGlassStyle
+                self.using_liquid_glass = True
+                
+                # Configurar fonte fallback para sistemas sem SF Pro
+                default_fonts = ['Segoe UI', 'Arial', 'Helvetica']
+                self._configure_font_fallback(default_fonts)
+                print("✅ Estilo Liquid Glass aplicado com sucesso!")
+            else:
+                self._setup_fallback_styles()
+                print(f"ℹ️ Usando estilo padrão (tema: {theme_to_use})")
+            
+        except ImportError as e:
+            # Fallback para estilo padrão
+            print(f"⚠️ Liquid Glass não disponível: {e}")
+            self._setup_fallback_styles()
+        except Exception as e:
+            print(f"⚠️ Erro ao aplicar Liquid Glass: {e}")
+            self._setup_fallback_styles()
+
+    def _configure_font_fallback(self, font_list):
+        """Configura fallback de fontes"""
+        for font_name in font_list:
+            try:
+                test_font = tk.font.Font(family=font_name, size=10)
+                if test_font.actual()['family'] == font_name:
+                    # Fonte disponível, usar como padrão
+                    self.root.option_add('*Font', (font_name, 10))
+                    break
+            except:
+                continue
+
+    def _setup_fallback_styles(self):
+        """Configura estilos fallback"""
         self.style = ttk.Style()
         
         # Configurar tema
@@ -54,10 +122,11 @@ class PrintFApp:
         except:
             pass
         
-        # Estilos personalizados
+        # Estilos personalizados fallback
         self.style.configure('Title.TLabel', 
                            font=('Arial', 16, 'bold'), 
-                           foreground='#2c3e50')
+                           foreground='#2c3e50',
+                           background='#f5f5f5')
         
         self.style.configure('Module.TButton',
                            font=('Arial', 11, 'bold'),
@@ -67,6 +136,44 @@ class PrintFApp:
                            background='#3498db',
                            foreground='white',
                            focuscolor='none')
+        
+        # Configurar cores de fallback
+        self.root.configure(bg='#f5f5f5')
+
+    def _setup_bindings(self):
+        """Configura bindings para responsividade"""
+        self.root.bind('<Configure>', self._on_window_resize)
+        
+    def _on_window_resize(self, event):
+        """Manipula redimensionamento da janela"""
+        if event.widget == self.root:
+            # Atualizar layout responsivo se necessário
+            if hasattr(self, 'main_frame') and self.settings.get('responsive_layout', True):
+                self._update_responsive_layout(event.width, event.height)
+
+    def _update_responsive_layout(self, width, height):
+        """Atualiza layout baseado no tamanho da tela"""
+        from config import APP_CONFIG
+        breakpoints = APP_CONFIG.UI_SETTINGS['responsive_breakpoints']
+        
+        # Ajustar padding e tamanhos baseado na largura
+        if width < breakpoints['small']:
+            # Layout mobile/tablet
+            padding = "20"
+            font_scale = 0.9
+        elif width < breakpoints['medium']:
+            # Layout pequeno desktop
+            padding = "30"
+            font_scale = 1.0
+        else:
+            # Layout grande desktop
+            padding = "40"
+            font_scale = 1.1
+            
+        # Aplicar ajustes se necessário
+        if hasattr(self, 'current_padding') and self.current_padding != padding:
+            self.current_padding = padding
+            # Aqui você pode adicionar lógica para reempacotar widgets com novo padding
 
     def _load_settings(self):
         """Carrega configurações"""
@@ -75,30 +182,55 @@ class PrintFApp:
 
     def _save_settings(self):
         """Salva configurações"""
+        # Salvar tamanho e posição atual
+        self.settings['window_size'] = {
+            'width': self.root.winfo_width(),
+            'height': self.root.winfo_height()
+        }
+        self.settings['window_position'] = {
+            'x': self.root.winfo_x(),
+            'y': self.root.winfo_y()
+        }
+        
         from config import APP_CONFIG
         APP_CONFIG.save_user_settings(self.settings)
 
     def create_ui(self):
         """Cria interface principal completa"""
         # Frame principal
-        main_frame = ttk.Frame(self.root, padding="30")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        if self.using_liquid_glass and self.style_manager:
+            # Usar estilo Liquid Glass
+            self.main_frame = self.style_manager.create_glass_frame(self.root)
+        else:
+            # Fallback
+            self.main_frame = ttk.Frame(self.root, padding="30")
+            self.main_frame.configure(style='TFrame')
+            
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Cabeçalho
-        self._create_header(main_frame)
+        self._create_header(self.main_frame)
         
         # Separador
-        ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, pady=20)
+        if self.using_liquid_glass and self.style_manager:
+            separator = ttk.Separator(self.main_frame, orient='horizontal', style="Glass.TSeparator")
+        else:
+            separator = ttk.Separator(self.main_frame, orient='horizontal')
+        separator.pack(fill=tk.X, pady=20)
         
         # Módulos
-        self._create_modules_grid(main_frame)
+        self._create_modules_grid(self.main_frame)
         
         # Rodapé
-        self._create_footer(main_frame)
+        self._create_footer(self.main_frame)
 
     def _create_header(self, parent):
         """Cria cabeçalho da aplicação"""
-        header_frame = ttk.Frame(parent)
+        if self.using_liquid_glass and self.style_manager:
+            header_frame = self.style_manager.create_glass_frame(parent)
+        else:
+            header_frame = ttk.Frame(parent)
+            header_frame.configure(style='TFrame')
         header_frame.pack(fill=tk.X, pady=(0, 10))
         
         # Logo e título
@@ -106,31 +238,50 @@ class PrintFApp:
         title_frame.pack(fill=tk.X)
         
         # Ícone do aplicativo
-        icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24))
+        if self.using_liquid_glass and self.style_manager:
+            icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), style="Glass.TLabel")
+        else:
+            icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), background='#f5f5f5')
         icon_label.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Textos
-        title_text = ttk.Label(title_frame, text="PRINTF UNIFICADO", 
-                              style='Title.TLabel')
+        # Textos - CORREÇÃO: Usar ttk.Label com estilos
+        if self.using_liquid_glass and self.style_manager:
+            title_text = self.style_manager.create_title_label(title_frame, "PRINTF UNIFICADO")
+        else:
+            title_text = ttk.Label(title_frame, text="PRINTF", style='Title.TLabel')
         title_text.pack(side=tk.LEFT)
         
-        subtitle = ttk.Label(header_frame, 
-                           text="Sistema Completo de Captura e Documentação de Evidências",
-                           font=("Arial", 10), 
-                           foreground="#7f8c8d")
+        if self.using_liquid_glass and self.style_manager:
+            subtitle = ttk.Label(header_frame, 
+                               text="Sistema Completo de Captura e Documentação de Evidências",
+                               style="Subtitle.TLabel")
+        else:
+            subtitle = ttk.Label(header_frame, 
+                               text="Sistema Completo de Captura e Documentação de Evidências",
+                               style="Subtitle.TLabel" if hasattr(self, 'style') else None,
+                               font=("Arial", 10))
         subtitle.pack(pady=(5, 0))
         
         # Versão
         from config import APP_CONFIG
-        version_text = ttk.Label(header_frame, 
-                               text=f"Versão {APP_CONFIG.VERSION}",
-                               font=("Arial", 8),
-                               foreground="#bdc3c7")
+        if self.using_liquid_glass and self.style_manager:
+            version_text = ttk.Label(header_frame, 
+                                   text=f"Versão {APP_CONFIG.VERSION}",
+                                   style="Subtitle.TLabel")
+        else:
+            version_text = ttk.Label(header_frame, 
+                                   text=f"Versão {APP_CONFIG.VERSION}",
+                                   style="Subtitle.TLabel" if hasattr(self, 'style') else None,
+                                   font=("Arial", 8))
         version_text.pack(side=tk.RIGHT)
 
     def _create_modules_grid(self, parent):
-        """Cria grid de módulos"""
-        modules_frame = ttk.Frame(parent)
+        """Cria grid de módulos responsivo"""
+        if self.using_liquid_glass and self.style_manager:
+            modules_frame = self.style_manager.create_glass_frame(parent)
+        else:
+            modules_frame = ttk.Frame(parent)
+            modules_frame.configure(style='TFrame')
         modules_frame.pack(fill=tk.BOTH, expand=True)
         
         # Configuração dos módulos
@@ -165,95 +316,188 @@ class PrintFApp:
             }
         ]
         
-        # Criar grid 2x2
-        for i, module in enumerate(modules_config):
-            row = i // 2
-            col = i % 2
-            
-            self._create_module_card(modules_frame, module, row, col)
-        
-        # Configurar grid
-        modules_frame.grid_rowconfigure(0, weight=1)
-        modules_frame.grid_rowconfigure(1, weight=1)
-        modules_frame.grid_columnconfigure(0, weight=1)
-        modules_frame.grid_columnconfigure(1, weight=1)
+        # Criar grid responsivo
+        self._create_responsive_grid(modules_frame, modules_config)
 
-    def _create_module_card(self, parent, module_config, row, col):
+    def _create_responsive_grid(self, parent, modules_config):
+        """Cria grid responsivo baseado no tamanho da tela"""
+        width = self.root.winfo_width()
+        from config import APP_CONFIG
+        breakpoints = APP_CONFIG.UI_SETTINGS['responsive_breakpoints']
+        
+        if width < breakpoints['small']:
+            # 1 coluna para telas pequenas
+            cols = 1
+        elif width < breakpoints['medium']:
+            # 2 colunas para telas médias
+            cols = 2
+        else:
+            # 2 colunas para telas grandes (mantém consistência)
+            cols = 2
+        
+        # Limpar grid anterior se existir
+        for widget in parent.winfo_children():
+            widget.destroy()
+        
+        # Criar novo grid
+        for i, module in enumerate(modules_config):
+            row = i // cols
+            col = i % cols
+            
+            if cols == 1:
+                # Layout single column
+                self._create_module_card(parent, module).pack(fill=tk.X, padx=10, pady=5)
+            else:
+                # Layout grid
+                card = self._create_module_card(parent, module)
+                card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        
+        # Configurar weights para expansão
+        if cols > 1:
+            for i in range((len(modules_config) + cols - 1) // cols):
+                parent.grid_rowconfigure(i, weight=1)
+            for j in range(cols):
+                parent.grid_columnconfigure(j, weight=1)
+
+    def _create_module_card(self, parent, module_config):
         """Cria card de módulo individual"""
-        card_frame = ttk.Frame(parent, relief="solid", borderwidth=1)
-        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-        card_frame.columnconfigure(0, weight=1)
+        if self.using_liquid_glass and self.style_manager:
+            card_frame = self.style_manager.create_card(parent)
+        else:
+            card_frame = tk.Frame(parent, relief="solid", borderwidth=1, bg='white')
         
         # Botão principal
-        btn = tk.Button(card_frame, 
-                       text=module_config["title"],
-                       command=lambda k=module_config["key"]: self.open_module(k),
-                       bg=module_config["color"],
-                       fg="white",
-                       font=("Arial", 11, "bold"),
-                       width=20,
-                       height=2,
-                       relief="flat",
-                       cursor="hand2",
-                       anchor="w",
-                       justify="left")
-        btn.pack(fill=tk.X, padx=8, pady=8)
+        if self.using_liquid_glass and self.style_manager:
+            btn = self.style_manager.create_accent_button(
+                card_frame, 
+                module_config["title"],
+                command=lambda k=module_config["key"]: self.open_module(k)
+            )
+            btn.pack(fill=tk.X, padx=8, pady=8)
+        else:
+            btn = tk.Button(card_frame, 
+                           text=module_config["title"],
+                           command=lambda k=module_config["key"]: self.open_module(k),
+                           bg=module_config["color"],
+                           fg="white",
+                           font=("Arial", 11, "bold"),
+                           relief="flat",
+                           cursor="hand2",
+                           anchor="w",
+                           justify="left")
+            btn.pack(fill=tk.X, padx=8, pady=8)
+            
+            # Efeitos hover para estilo padrão
+            btn.bind("<Enter>", lambda e, b=btn, c=module_config["color"]: 
+                    b.config(bg=self._darken_color(c)))
+            btn.bind("<Leave>", lambda e, b=btn, c=module_config["color"]: 
+                    b.config(bg=c))
         
-        # Hotkey
-        hotkey_frame = ttk.Frame(card_frame)
+        # Hotkey - CORREÇÃO: Usar ttk.Label quando usando Liquid Glass
+        hotkey_frame = tk.Frame(card_frame, 
+                               bg=self.style_manager.BG_CARD if self.using_liquid_glass else 'white')
         hotkey_frame.pack(fill=tk.X, padx=8)
         
-        hotkey_label = ttk.Label(hotkey_frame, 
-                                text=f"Atalho: {module_config['hotkey']}",
-                                font=("Arial", 8, "bold"),
-                                foreground=module_config["color"])
+        if self.using_liquid_glass and self.style_manager:
+            hotkey_label = ttk.Label(hotkey_frame, 
+                                    text=f"Atalho: {module_config['hotkey']}",
+                                    style="Accent.TLabel")
+        else:
+            hotkey_label = tk.Label(hotkey_frame, 
+                                    text=f"Atalho: {module_config['hotkey']}",
+                                    font=("Arial", 8, "bold"),
+                                    foreground=module_config["color"],
+                                    bg='white')
         hotkey_label.pack(side=tk.RIGHT)
         
-        # Descrição
-        desc_label = tk.Label(card_frame, 
-                             text=module_config["description"],
-                             font=("Arial", 9),
-                             bg="white",
-                             fg="#2c3e50",
-                             justify="left",
-                             wraplength=200)
+        # Descrição - CORREÇÃO: Usar ttk.Label quando usando Liquid Glass
+        if self.using_liquid_glass and self.style_manager:
+            desc_label = ttk.Label(card_frame, 
+                                 text=module_config["description"],
+                                 style="Glass.TLabel",
+                                 justify="left",
+                                 wraplength=200)
+        else:
+            desc_label = tk.Label(card_frame, 
+                                 text=module_config["description"],
+                                 font=("Arial", 9),
+                                 bg="white",
+                                 fg="#2c3e50",
+                                 justify="left",
+                                 wraplength=200)
         desc_label.pack(fill=tk.X, padx=8, pady=(0, 8))
-        
-        # Efeitos hover
-        btn.bind("<Enter>", lambda e, b=btn, c=module_config["color"]: 
-                b.config(bg=self._darken_color(c)))
-        btn.bind("<Leave>", lambda e, b=btn, c=module_config["color"]: 
-                b.config(bg=c))
+
+        return card_frame
 
     def _create_footer(self, parent):
         """Cria rodapé"""
-        footer_frame = ttk.Frame(parent)
+        if self.using_liquid_glass and self.style_manager:
+            footer_frame = self.style_manager.create_glass_frame(parent)
+        else:
+            footer_frame = tk.Frame(parent, bg='#f5f5f5')
         footer_frame.pack(fill=tk.X, pady=(20, 0))
         
         # Informações do sistema
-        sys_info = ttk.Frame(footer_frame)
+        sys_info = tk.Frame(footer_frame, 
+                           bg=self.style_manager.BG_CARD if self.using_liquid_glass else '#f5f5f5')
         sys_info.pack(side=tk.LEFT)
         
-        ttk.Label(sys_info, 
-                 text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-                 font=("Arial", 8),
-                 foreground="gray").pack(anchor="w")
+        if self.using_liquid_glass and self.style_manager:
+            footer_text = ttk.Label(sys_info, 
+                                  text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                                  style="Subtitle.TLabel")
+        else:
+            footer_text = tk.Label(sys_info, 
+                                  text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                                  font=("Arial", 8),
+                                  foreground="gray",
+                                  bg='#f5f5f5')
+        footer_text.pack(anchor="w")
         
         # Ações globais
-        actions = ttk.Frame(footer_frame)
+        actions = tk.Frame(footer_frame, 
+                          bg=self.style_manager.BG_CARD if self.using_liquid_glass else '#f5f5f5')
         actions.pack(side=tk.RIGHT)
         
-        ttk.Button(actions, text="⚙️ Configurações",
-                  command=self._open_settings).pack(side=tk.LEFT, padx=2)
-        
-        ttk.Button(actions, text="❓ Ajuda",
-                  command=self._show_help).pack(side=tk.LEFT, padx=2)
-        
-        ttk.Button(actions, text="❌ Sair",
-                  command=self._on_closing).pack(side=tk.LEFT, padx=2)
+        if self.using_liquid_glass and self.style_manager:
+            ttk.Button(actions, text="⚙️ Configurações", style="Glass.TButton",
+                      command=self._open_settings).pack(side=tk.LEFT, padx=2)
+            
+            ttk.Button(actions, text="❓ Ajuda", style="Glass.TButton",
+                      command=self._show_help).pack(side=tk.LEFT, padx=2)
+            
+            ttk.Button(actions, text="❌ Sair", style="Error.TButton",
+                      command=self._on_closing).pack(side=tk.LEFT, padx=2)
+        else:
+            tk.Button(actions, text="⚙️ Configurações",
+                     command=self._open_settings,
+                     bg='#3498db', fg='white', font=("Arial", 9),
+                     relief="flat").pack(side=tk.LEFT, padx=2)
+            
+            tk.Button(actions, text="❓ Ajuda",
+                     command=self._show_help,
+                     bg='#95a5a6', fg='white', font=("Arial", 9),
+                     relief="flat").pack(side=tk.LEFT, padx=2)
+            
+            tk.Button(actions, text="❌ Sair",
+                     command=self._on_closing,
+                     bg='#e74c3c', fg='white', font=("Arial", 9),
+                     relief="flat").pack(side=tk.LEFT, padx=2)
 
     def _darken_color(self, color, factor=0.8):
         """Escurece cor hexadecimal (simplificado)"""
+        # Conversão simples para escurecer cor
+        try:
+            if color.startswith('#'):
+                r = int(color[1:3], 16)
+                g = int(color[3:5], 16)
+                b = int(color[5:7], 16)
+                r = int(r * factor)
+                g = int(g * factor)
+                b = int(b * factor)
+                return f'#{r:02x}{g:02x}{b:02x}'
+        except:
+            pass
         return color
 
     def open_module(self, module_key):
@@ -345,9 +589,6 @@ class PrintFApp:
         """Executa a aplicação"""
         try:
             self.create_ui()
-            
-            # Centralizar na tela
-            self.root.eval('tk::PlaceWindow . center')
             
             # Verificar dependências
             self._check_dependencies()

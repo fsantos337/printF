@@ -5,43 +5,43 @@ import tkinter.ttk as ttk
 import tkinter.font as tkfont
 
 class LiquidGlassStyle:
-    """Estilo Liquid Glass para a aplicação - Design inspirado na Apple"""
+    """Estilo Liquid Glass para a aplicação - Design inspirado no Windows 11"""
     
-    # Cores do tema Liquid Glass (Apple-inspired)
-    BG_PRIMARY = "#0a0e14"        # Fundo principal escuro
-    BG_SECONDARY = "#1a1f2e"      # Fundo secundário
-    BG_CARD = "#252a3a"           # Cartões e containers
-    BG_HOVER = "#2d3448"          # Hover states
-    BG_GLASS = "rgba(37, 42, 58, 0.8)"  # Efeito glass
+    # Cores do tema Windows 11 Dark Mode com transparência
+    BG_PRIMARY = "#202020"           # Fundo principal escuro
+    BG_SECONDARY = "#2D2D2D"         # Fundo secundário
+    BG_CARD = "#383838"              # Cartões e containers
+    BG_HOVER = "#404040"             # Hover states
+    BG_GLASS = "rgba(56, 56, 56, 0.8)"  # Efeito glass
     
-    # Cores de destaque (Apple palette)
-    ACCENT_PRIMARY = "#007AFF"    # Azul Apple
-    ACCENT_SECONDARY = "#5856D6"  # Roxo Apple
-    ACCENT_SUCCESS = "#34C759"    # Verde Apple
-    ACCENT_WARNING = "#FF9500"    # Laranja Apple
-    ACCENT_ERROR = "#FF3B30"      # Vermelho Apple
+    # Cores de destaque (Windows 11 palette)
+    ACCENT_PRIMARY = "#0078D4"       # Azul Windows
+    ACCENT_SECONDARY = "#9A0089"     # Roxo Windows
+    ACCENT_SUCCESS = "#107C10"       # Verde Windows
+    ACCENT_WARNING = "#D83B01"       # Laranja Windows
+    ACCENT_ERROR = "#D13438"         # Vermelho Windows
     
-    # Texto
-    TEXT_PRIMARY = "#FFFFFF"      # Texto primário
-    TEXT_SECONDARY = "#8E8E93"    # Texto secundário
-    TEXT_MUTED = "#48484A"        # Texto muted
-    TEXT_ACCENT = "#007AFF"       # Texto de destaque
+    # Texto - CORRIGIDO: Textos claros para fundo escuro
+    TEXT_PRIMARY = "#FFFFFF"         # Texto primário (BRANCO)
+    TEXT_SECONDARY = "#E0E0E0"       # Texto secundário (CINZA CLARO)
+    TEXT_MUTED = "#A0A0A0"           # Texto muted (CINZA MÉDIO)
+    TEXT_ACCENT = "#0078D4"          # Texto de destaque
     
     # Bordas e separadores
-    BORDER_COLOR = "#38383A"
-    SEPARATOR_COLOR = "#38383A"
+    BORDER_COLOR = "#484848"
+    SEPARATOR_COLOR = "#484848"
     
     # Efeitos
     GLASS_ALPHA = 0.15
-    BORDER_RADIUS = 12
-    SHADOW_COLOR = "#00000020"
+    BORDER_RADIUS = 8                # Bordas mais suaves como Windows 11
+    SHADOW_COLOR = "#00000030"
     
-    # Fontes (Apple System Fonts)
-    FONT_PRIMARY = ("SF Pro Display", 10)
-    FONT_SECONDARY = ("SF Pro Text", 9)
-    FONT_TITLE = ("SF Pro Display", 16, "bold")
-    FONT_HEADER = ("SF Pro Display", 12, "bold")
-    FONT_ACCENT = ("SF Pro Text", 10, "bold")
+    # Fontes (Windows 11 Fonts)
+    FONT_PRIMARY = ("Segoe UI", 10)
+    FONT_SECONDARY = ("Segoe UI", 9)
+    FONT_TITLE = ("Segoe UI", 16, "bold")
+    FONT_HEADER = ("Segoe UI", 12, "bold")
+    FONT_ACCENT = ("Segoe UI", 10, "bold")
     
     @classmethod
     def configure_styles(cls):
@@ -57,16 +57,16 @@ class LiquidGlassStyle:
             except:
                 pass
 
-        # Configurações gerais
+        # Configurações gerais - CORRIGIDO: textos claros
         style.configure(".", 
                        background=cls.BG_PRIMARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # Texto BRANCO
                        fieldbackground=cls.BG_SECONDARY,
                        selectbackground=cls.ACCENT_PRIMARY,
-                       selectforeground=cls.TEXT_PRIMARY,
-                       insertcolor=cls.TEXT_PRIMARY,
+                       selectforeground=cls.TEXT_PRIMARY,  # Texto BRANCO
+                       insertcolor=cls.TEXT_PRIMARY,       # Cursor BRANCO
                        troughcolor=cls.BG_SECONDARY,
-                       focuscolor=cls.ACCENT_PRIMARY + "20")
+                       focuscolor=cls.ACCENT_PRIMARY + "40")
         
         # Frame com efeito glass
         style.configure("Glass.TFrame",
@@ -74,25 +74,25 @@ class LiquidGlassStyle:
                        relief="flat",
                        borderwidth=0)
         
-        # Labels
+        # Labels - CORRIGIDO: textos claros
         style.configure("Glass.TLabel",
                        background=cls.BG_CARD,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        font=cls.FONT_PRIMARY)
         
         style.configure("Title.TLabel",
                        background=cls.BG_PRIMARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        font=cls.FONT_TITLE)
         
         style.configure("Subtitle.TLabel",
                        background=cls.BG_PRIMARY,
-                       foreground=cls.TEXT_SECONDARY,
+                       foreground=cls.TEXT_SECONDARY,  # CINZA CLARO
                        font=cls.FONT_SECONDARY)
         
         style.configure("Header.TLabel",
                        background=cls.BG_CARD,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        font=cls.FONT_HEADER)
         
         style.configure("Accent.TLabel",
@@ -115,93 +115,95 @@ class LiquidGlassStyle:
                        foreground=cls.ACCENT_ERROR,
                        font=cls.FONT_ACCENT)
 
-        # Entry
+        # Entry - CORRIGIDO: texto claro
         style.configure("Glass.TEntry",
                        fieldbackground=cls.BG_SECONDARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        bordercolor=cls.BORDER_COLOR,
                        lightcolor=cls.BORDER_COLOR,
                        darkcolor=cls.BORDER_COLOR,
                        selectbackground=cls.ACCENT_PRIMARY,
-                       selectforeground=cls.TEXT_PRIMARY,
-                       insertcolor=cls.TEXT_PRIMARY,
+                       selectforeground=cls.TEXT_PRIMARY,  # BRANCO
+                       insertcolor=cls.TEXT_PRIMARY,       # BRANCO
                        borderwidth=1,
                        relief="flat",
                        padding=(8, 6))
         
         style.map("Glass.TEntry",
                  bordercolor=[("focus", cls.ACCENT_PRIMARY),
-                            ("hover", cls.BG_HOVER)],
+                            ("hover", cls.ACCENT_PRIMARY + "80")],
                  lightcolor=[("focus", cls.ACCENT_PRIMARY)],
                  darkcolor=[("focus", cls.ACCENT_PRIMARY)])
 
-        # Buttons
+        # Buttons - CORRIGIDO: textos claros
         style.configure("Accent.TButton",
                        background=cls.ACCENT_PRIMARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        borderwidth=0,
-                       focuscolor=cls.ACCENT_PRIMARY + "20",
+                       focuscolor=cls.ACCENT_PRIMARY + "40",
                        font=cls.FONT_ACCENT,
                        relief="flat",
                        padding=(20, 10))
         
         style.map("Accent.TButton",
-                 background=[("active", cls.ACCENT_SECONDARY),
-                           ("pressed", cls.ACCENT_SECONDARY)],
-                 relief=[("pressed", "flat")])
+                 background=[("active", "#106EBE"),
+                           ("pressed", "#005A9E")],
+                 relief=[("pressed", "sunken")])
         
         style.configure("Glass.TButton",
-                       background=cls.BG_HOVER,
-                       foreground=cls.TEXT_PRIMARY,
-                       borderwidth=0,
+                       background=cls.BG_CARD,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
+                       borderwidth=1,
+                       bordercolor=cls.BORDER_COLOR,
                        font=cls.FONT_PRIMARY,
                        relief="flat",
                        padding=(15, 8))
         
         style.map("Glass.TButton",
-                 background=[("active", cls.BG_SECONDARY),
-                           ("pressed", cls.ACCENT_PRIMARY + "20")])
+                 background=[("active", cls.BG_HOVER),
+                           ("pressed", cls.ACCENT_PRIMARY + "20")],
+                 bordercolor=[("active", cls.ACCENT_PRIMARY + "80")])
         
         style.configure("Success.TButton",
                        background=cls.ACCENT_SUCCESS,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        borderwidth=0,
                        font=cls.FONT_ACCENT,
                        relief="flat",
                        padding=(20, 10))
         
         style.map("Success.TButton",
-                 background=[("active", "#30a850"),
-                           ("pressed", "#30a850")])
+                 background=[("active", "#0E6E0E"),
+                           ("pressed", "#0A5A0A")])
         
         style.configure("Warning.TButton",
                        background=cls.ACCENT_WARNING,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        borderwidth=0,
                        font=cls.FONT_ACCENT,
                        relief="flat",
                        padding=(20, 10))
         
         style.map("Warning.TButton",
-                 background=[("active", "#e68a00"),
-                           ("pressed", "#e68a00")])
+                 background=[("active", "#B83201"),
+                           ("pressed", "#9A2A01")])
         
         style.configure("Error.TButton",
                        background=cls.ACCENT_ERROR,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        borderwidth=0,
                        font=cls.FONT_ACCENT,
                        relief="flat",
                        padding=(20, 10))
         
         style.map("Error.TButton",
-                 background=[("active", "#e63530"),
-                           ("pressed", "#e63530")])
+                 background=[("active", "#C12A2E"),
+                           ("pressed", "#A32024")])
 
-        # Checkbutton/Radiobutton
+        # Checkbutton/Radiobutton - CORRIGIDO: textos claros
         style.configure("Glass.TRadiobutton",
                        background=cls.BG_CARD,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        indicatorcolor=cls.BG_SECONDARY,
                        indicatorrelief="raised",
                        indicatordiameter=12,
@@ -209,7 +211,7 @@ class LiquidGlassStyle:
         
         style.configure("Glass.TCheckbutton",
                        background=cls.BG_CARD,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        indicatorcolor=cls.BG_SECONDARY,
                        indicatorrelief="raised",
                        indicatordiameter=12,
@@ -217,13 +219,15 @@ class LiquidGlassStyle:
         
         style.map("Glass.TRadiobutton",
                  indicatorcolor=[("selected", cls.ACCENT_PRIMARY),
-                               ("active", cls.BG_HOVER)])
+                               ("active", cls.BG_HOVER)],
+                 background=[("active", cls.BG_HOVER)])
         
         style.map("Glass.TCheckbutton",
                  indicatorcolor=[("selected", cls.ACCENT_PRIMARY),
-                               ("active", cls.BG_HOVER)])
+                               ("active", cls.BG_HOVER)],
+                 background=[("active", cls.BG_HOVER)])
 
-        # Notebook
+        # Notebook - CORRIGIDO: textos claros
         style.configure("Glass.TNotebook",
                        background=cls.BG_PRIMARY,
                        borderwidth=0,
@@ -231,8 +235,8 @@ class LiquidGlassStyle:
         
         style.configure("Glass.TNotebook.Tab",
                        background=cls.BG_SECONDARY,
-                       foreground=cls.TEXT_SECONDARY,
-                       padding=(20, 10),
+                       foreground=cls.TEXT_SECONDARY,  # CINZA CLARO
+                       padding=(20, 8),
                        borderwidth=0,
                        font=cls.FONT_PRIMARY,
                        focuscolor=cls.BG_PRIMARY)
@@ -241,16 +245,16 @@ class LiquidGlassStyle:
                  background=[("selected", cls.BG_CARD),
                            ("active", cls.BG_HOVER)],
                  foreground=[("selected", cls.ACCENT_PRIMARY),
-                           ("active", cls.TEXT_PRIMARY)])
+                           ("active", cls.TEXT_PRIMARY)])  # BRANCO no hover
 
         # Separator
         style.configure("Glass.TSeparator",
                        background=cls.SEPARATOR_COLOR)
 
-        # LabelFrame
+        # LabelFrame - CORRIGIDO: textos claros
         style.configure("Glass.TLabelframe",
                        background=cls.BG_CARD,
-                       foreground=cls.ACCENT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        font=cls.FONT_HEADER,
                        borderwidth=1,
                        relief="solid",
@@ -258,7 +262,7 @@ class LiquidGlassStyle:
         
         style.configure("Glass.TLabelframe.Label",
                        background=cls.BG_CARD,
-                       foreground=cls.ACCENT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        font=cls.FONT_HEADER)
 
         # Scrollbar
@@ -268,7 +272,7 @@ class LiquidGlassStyle:
                        lightcolor=cls.BG_SECONDARY,
                        troughcolor=cls.BG_PRIMARY,
                        bordercolor=cls.BG_PRIMARY,
-                       arrowcolor=cls.TEXT_SECONDARY,
+                       arrowcolor=cls.TEXT_SECONDARY,  # CINZA CLARO
                        gripcount=0)
         
         style.configure("Glass.Horizontal.TScrollbar",
@@ -277,7 +281,7 @@ class LiquidGlassStyle:
                        lightcolor=cls.BG_SECONDARY,
                        troughcolor=cls.BG_PRIMARY,
                        bordercolor=cls.BG_PRIMARY,
-                       arrowcolor=cls.TEXT_SECONDARY,
+                       arrowcolor=cls.TEXT_SECONDARY,  # CINZA CLARO
                        gripcount=0)
         
         style.map("Glass.Vertical.TScrollbar",
@@ -307,37 +311,37 @@ class LiquidGlassStyle:
                        borderwidth=0,
                        thickness=8)
 
-        # Treeview
+        # Treeview - CORRIGIDO: textos claros
         style.configure("Glass.Treeview",
                        background=cls.BG_SECONDARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        fieldbackground=cls.BG_SECONDARY,
                        borderwidth=0,
                        relief="flat",
-                       rowheight=25)
+                       rowheight=28)
         
         style.configure("Glass.Treeview.Heading",
                        background=cls.BG_CARD,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        relief="flat",
                        borderwidth=0,
                        font=cls.FONT_ACCENT)
         
         style.map("Glass.Treeview",
                  background=[("selected", cls.ACCENT_PRIMARY)],
-                 foreground=[("selected", cls.TEXT_PRIMARY)])
+                 foreground=[("selected", cls.TEXT_PRIMARY)])  # BRANCO no selecionado
         
         style.map("Glass.Treeview.Heading",
                  background=[("active", cls.BG_HOVER)])
 
-        # Combobox
+        # Combobox - CORRIGIDO: textos claros
         style.configure("Glass.TCombobox",
                        fieldbackground=cls.BG_SECONDARY,
                        background=cls.BG_SECONDARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        selectbackground=cls.ACCENT_PRIMARY,
-                       selectforeground=cls.TEXT_PRIMARY,
-                       insertcolor=cls.TEXT_PRIMARY,
+                       selectforeground=cls.TEXT_PRIMARY,  # BRANCO
+                       insertcolor=cls.TEXT_PRIMARY,       # BRANCO
                        borderwidth=1,
                        relief="flat",
                        padding=(8, 6))
@@ -346,7 +350,7 @@ class LiquidGlassStyle:
                  fieldbackground=[("readonly", cls.BG_SECONDARY)],
                  background=[("readonly", cls.BG_SECONDARY)],
                  bordercolor=[("focus", cls.ACCENT_PRIMARY),
-                            ("hover", cls.BG_HOVER)],
+                            ("hover", cls.ACCENT_PRIMARY + "80")],
                  lightcolor=[("focus", cls.ACCENT_PRIMARY)],
                  darkcolor=[("focus", cls.ACCENT_PRIMARY)])
 
@@ -373,21 +377,21 @@ class LiquidGlassStyle:
                  background=[("active", cls.ACCENT_PRIMARY)],
                  troughcolor=[("active", cls.BG_HOVER)])
 
-        # Spinbox
+        # Spinbox - CORRIGIDO: textos claros
         style.configure("Glass.TSpinbox",
                        fieldbackground=cls.BG_SECONDARY,
                        background=cls.BG_SECONDARY,
-                       foreground=cls.TEXT_PRIMARY,
+                       foreground=cls.TEXT_PRIMARY,  # BRANCO
                        selectbackground=cls.ACCENT_PRIMARY,
-                       selectforeground=cls.TEXT_PRIMARY,
-                       insertcolor=cls.TEXT_PRIMARY,
+                       selectforeground=cls.TEXT_PRIMARY,  # BRANCO
+                       insertcolor=cls.TEXT_PRIMARY,       # BRANCO
                        borderwidth=1,
                        relief="flat",
                        padding=(8, 6))
         
         style.map("Glass.TSpinbox",
                  bordercolor=[("focus", cls.ACCENT_PRIMARY),
-                            ("hover", cls.BG_HOVER)],
+                            ("hover", cls.ACCENT_PRIMARY + "80")],
                  lightcolor=[("focus", cls.ACCENT_PRIMARY)],
                  darkcolor=[("focus", cls.ACCENT_PRIMARY)])
 
@@ -452,6 +456,7 @@ class LiquidGlassStyle:
         try:
             if window.tk.call('tk', 'windowingsystem') == 'win32':
                 window.wm_attributes('-transparentcolor', cls.BG_PRIMARY)
+                window.wm_attributes('-alpha', 0.95)  # Leve transparência
             elif window.tk.call('tk', 'windowingsystem') == 'aqua':
                 window.wm_attributes('-transparent', True)
         except:

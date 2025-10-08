@@ -1,168 +1,59 @@
+import csv
+import json
+import os
+import re
+import threading
+import time
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from pathlib import Path
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+
 import pandas as pd
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-import os
-import threading
-import json
-import csv
-import re
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-
-class LiquidGlassStyle:
-    """Estilo Liquid Glass para a aplicação"""
-    
-    # Cores do tema Liquid Glass
-    BG_PRIMARY = "#0a0e27"
-    BG_SECONDARY = "#1a1f3a"
-    BG_CARD = "#252b48"
-    BG_HOVER = "#2d3454"
-    
-    ACCENT_PRIMARY = "#00d4ff"
-    ACCENT_SECONDARY = "#7b2ff7"
-    ACCENT_SUCCESS = "#00ff88"
-    ACCENT_WARNING = "#ffd93d"
-    ACCENT_ERROR = "#ff6b6b"
-    
-    TEXT_PRIMARY = "#ffffff"
-    TEXT_SECONDARY = "#a0aec0"
-    TEXT_MUTED = "#718096"
-    
-    GLASS_ALPHA = 0.15
-    BORDER_RADIUS = 16
-    
-    @staticmethod
-    def configure_style():
-        """Configura o estilo ttk com tema Liquid Glass"""
-        style = ttk.Style()
-        style.theme_use('clam')
-        
-        # Frame com efeito glass
-        style.configure("Glass.TFrame",
-                       background=LiquidGlassStyle.BG_CARD,
-                       relief="flat",
-                       borderwidth=0)
-        
-        # Labels
-        style.configure("Glass.TLabel",
-                       background=LiquidGlassStyle.BG_CARD,
-                       foreground=LiquidGlassStyle.TEXT_PRIMARY,
-                       font=("Segoe UI", 10))
-        
-        style.configure("Title.TLabel",
-                       background=LiquidGlassStyle.BG_PRIMARY,
-                       foreground=LiquidGlassStyle.ACCENT_PRIMARY,
-                       font=("Segoe UI", 24, "bold"))
-        
-        style.configure("Subtitle.TLabel",
-                       background=LiquidGlassStyle.BG_PRIMARY,
-                       foreground=LiquidGlassStyle.TEXT_SECONDARY,
-                       font=("Segoe UI", 10))
-        
-        style.configure("Header.TLabel",
-                       background=LiquidGlassStyle.BG_CARD,
-                       foreground=LiquidGlassStyle.TEXT_PRIMARY,
-                       font=("Segoe UI", 12, "bold"))
-        
-        # Entry
-        style.configure("Glass.TEntry",
-                       fieldbackground=LiquidGlassStyle.BG_SECONDARY,
-                       foreground=LiquidGlassStyle.TEXT_PRIMARY,
-                       bordercolor=LiquidGlassStyle.ACCENT_PRIMARY,
-                       lightcolor=LiquidGlassStyle.ACCENT_PRIMARY,
-                       darkcolor=LiquidGlassStyle.BG_SECONDARY,
-                       borderwidth=1,
-                       relief="flat")
-        
-        # Buttons
-        style.configure("Accent.TButton",
-                       background=LiquidGlassStyle.ACCENT_PRIMARY,
-                       foreground=LiquidGlassStyle.BG_PRIMARY,
-                       borderwidth=0,
-                       focuscolor=LiquidGlassStyle.ACCENT_PRIMARY,
-                       font=("Segoe UI", 10, "bold"),
-                       relief="flat")
-        
-        style.map("Accent.TButton",
-                 background=[("active", LiquidGlassStyle.ACCENT_SECONDARY)],
-                 relief=[("pressed", "flat")])
-        
-        style.configure("Glass.TButton",
-                       background=LiquidGlassStyle.BG_HOVER,
-                       foreground=LiquidGlassStyle.TEXT_PRIMARY,
-                       borderwidth=0,
-                       font=("Segoe UI", 9),
-                       relief="flat")
-        
-        style.map("Glass.TButton",
-                 background=[("active", LiquidGlassStyle.BG_SECONDARY)])
-        
-        # Progressbar
-        style.configure("Glass.Horizontal.TProgressbar",
-                       background=LiquidGlassStyle.ACCENT_PRIMARY,
-                       troughcolor=LiquidGlassStyle.BG_SECONDARY,
-                       borderwidth=0,
-                       thickness=8)
-        
-        # Notebook
-        style.configure("Glass.TNotebook",
-                       background=LiquidGlassStyle.BG_PRIMARY,
-                       borderwidth=0)
-        
-        style.configure("Glass.TNotebook.Tab",
-                       background=LiquidGlassStyle.BG_SECONDARY,
-                       foreground=LiquidGlassStyle.TEXT_SECONDARY,
-                       padding=[20, 10],
-                       borderwidth=0,
-                       font=("Segoe UI", 10))
-        
-        style.map("Glass.TNotebook.Tab",
-                 background=[("selected", LiquidGlassStyle.BG_CARD)],
-                 foreground=[("selected", LiquidGlassStyle.ACCENT_PRIMARY)])
-        
-        # Separator
-        style.configure("Glass.TSeparator",
-                       background=LiquidGlassStyle.BG_HOVER)
 
 
 class ConfigManager:
-    """Gerenciador de configuração de campos"""
+    """Gerencia o carregamento e salvamento da configuração de campos"""
     
     DEFAULT_CONFIG = [
-        {"label": "Projeto:", "key": "projeto"},
-        {"label": "Módulo:", "key": "modulo"},
-        {"label": "Versão:", "key": "versao"},
-        {"label": "Responsável:", "key": "responsavel"},
-        {"label": "Data:", "key": "data"},
-        {"label": "Ambiente:", "key": "ambiente"}
+        {"label": "Campo1:", "key": "campo1"},
+        {"label": "Campo2:", "key": "campo2"},
+        {"label": "Campo3:", "key": "campo3"},
+        {"label": "Campo4:", "key": "campo4"},
+        {"label": "Campo5:", "key": "campo5"},
+        {"label": "Campo6", "key": "campo6"}
     ]
 
-    def __init__(self, config_file='config_campos.json'):
+    def __init__(self, config_file: str = 'config_campos.json'):
         self.config_file = Path(config_file)
 
-    def load_config(self):
-        """Carrega configuração do arquivo JSON"""
+    def load_config(self) -> List[Dict]:
+        """Carrega a configuração do arquivo JSON ou cria uma padrão"""
         try:
             if self.config_file.exists():
                 with open(self.config_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    config = json.load(f)
+                    print(f"✅ Configuração carregada de '{self.config_file}'")
+                    return config
             else:
                 return self._create_default_config()
-        except:
+        except Exception as e:
+            print(f"⚠️ Erro ao carregar configuração: {e}")
             return self.DEFAULT_CONFIG
 
-    def _create_default_config(self):
+    def _create_default_config(self) -> List[Dict]:
         """Cria arquivo de configuração padrão"""
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
+            print(f"ℹ️ Arquivo '{self.config_file}' criado com configuração padrão")
             return self.DEFAULT_CONFIG
-        except:
+        except Exception as e:
+            print(f"❌ Erro ao criar configuração padrão: {e}")
             return self.DEFAULT_CONFIG
 
 
@@ -177,7 +68,7 @@ class CSVReader:
         try:
             return CSVReader._read_with_pandas(file_path) or CSVReader._read_manual(file_path)
         except Exception as e:
-            print(f"Erro ao ler CSV: {e}")
+            messagebox.showerror("Erro", f"Erro ao ler o CSV: {e}")
             return None
 
     @staticmethod
@@ -274,17 +165,21 @@ class DocumentProcessor:
     @staticmethod
     def fill_template(doc: Document, data: Dict[str, str], field_mapping: Dict[str, str]) -> None:
         """Preenche o template com os dados fornecidos"""
+        # Primeiro ajusta os campos do template de acordo com as labels do JSON
         DocumentProcessor.adjust_template_fields(doc, field_mapping)
         
+        # Cria mapeamento label -> valor
         label_to_value = {}
         for original_key, label in field_mapping.items():
             label_to_value[label] = data.get(original_key, '')
         
         label_to_value['Caso de Teste'] = data.get('Caso de Teste', '')
         
+        # Preenche parágrafos
         for paragraph in doc.paragraphs:
             DocumentProcessor._fill_paragraph(paragraph, label_to_value)
         
+        # Preenche tabelas
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -309,28 +204,35 @@ class DefaultDocumentGenerator:
         """Cria um documento padrão com estrutura organizada"""
         doc = Document()
         
+        # Título do documento
         title = doc.add_heading('Evidências de Teste - Documentação', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
+        # Adicionar data e hora
         current_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         date_para = doc.add_paragraph(f"Gerado em: {current_time}")
         date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.add_paragraph()
         
+        # Seção de informações do teste
         doc.add_heading('Informações do Teste', level=1)
         
+        # Tabela para dados organizados
         table = doc.add_table(rows=len(field_config) + 1, cols=2)
         table.style = 'Light Grid Accent 1'
         
+        # Cabeçalho da tabela
         header_cells = table.rows[0].cells
         header_cells[0].text = "Campo"
         header_cells[1].text = "Valor"
         
+        # Formatar cabeçalho
         for cell in header_cells:
             for paragraph in cell.paragraphs:
                 for run in paragraph.runs:
                     run.bold = True
         
+        # Preencher dados da configuração
         for i, campo_info in enumerate(field_config, 1):
             key = campo_info['key']
             label = campo_info['label'].rstrip(':')
@@ -341,23 +243,28 @@ class DefaultDocumentGenerator:
         
         doc.add_paragraph()
         
+        # Seção do caso de teste
         doc.add_heading('Caso de Teste', level=1)
         caso_teste_para = doc.add_paragraph()
         caso_teste_para.add_run('Nome do Caso de Teste: ').bold = True
         caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
         
+        # Seção de descrição
         doc.add_heading('Descrição do Teste', level=2)
         doc.add_paragraph(
             "Esta seção deve conter a descrição detalhada do caso de teste executado, "
             "incluindo pré-condições, passos de execução e resultados esperados."
         )
         
+        # Seção de evidências
         doc.add_heading('Evidências Coletadas', level=2)
         doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
         
+        # Tabela para evidências
         evidencias_table = doc.add_table(rows=5, cols=3)
         evidencias_table.style = 'Light Grid Accent 1'
         
+        # Cabeçalho da tabela de evidências
         evidencias_header = evidencias_table.rows[0].cells
         headers = ['Etapa', 'Evidência', 'Resultado']
         for col, header in enumerate(headers):
@@ -366,6 +273,7 @@ class DefaultDocumentGenerator:
                 for run in paragraph.runs:
                     run.bold = True
         
+        # Linhas para preenchimento
         etapas = [
             'Pré-condições',
             'Configuração Inicial', 
@@ -382,9 +290,11 @@ class DefaultDocumentGenerator:
         
         doc.add_paragraph()
         
+        # Seção de observações
         doc.add_heading('Observações e Comentários', level=2)
         doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
         
+        # Área para observações
         obs_para = doc.add_paragraph()
         obs_para.add_run("Observações Gerais:\n").bold = True
         obs_para.add_run("• [Insira observações sobre problemas encontrados]\n")
@@ -392,6 +302,7 @@ class DefaultDocumentGenerator:
         obs_para.add_run("• [Sugestões de melhorias]\n")
         obs_para.add_run("• [Outras informações relevantes]")
         
+        # Rodapé informativo
         doc.add_paragraph()
         footer = doc.add_paragraph()
         footer.add_run("Documento gerado automaticamente pelo PrintF - Gerador de Templates").italic = True
@@ -410,20 +321,24 @@ class TemplateGenerator:
             doc = Document()
             doc.add_heading('Template de Evidências de Teste', level=1)
             
+            # Adicionar instruções
             info_para = doc.add_paragraph()
             info_para.add_run("Instruções: ").bold = True
             info_para.add_run("Este é um template de exemplo. Os campos abaixo serão preenchidos automaticamente.")
             
             doc.add_paragraph()
             
+            # Adicionar campos da configuração
             for campo_info in field_config:
                 doc.add_paragraph(f"{campo_info['label']} [VALOR]")
             
             doc.add_paragraph()
             
+            # Seção para caso de teste
             doc.add_heading('Detalhes do Caso de Teste', level=2)
             doc.add_paragraph("Caso de Teste: [NOME_DO_CASO]")
             
+            # Tabela para evidências
             table = doc.add_table(rows=4, cols=2)
             table.style = 'Table Grid'
             table.cell(0, 0).text = 'Caminho da Funcionalidade:'
@@ -438,16 +353,16 @@ class TemplateGenerator:
             doc.save('template_evidencias.docx')
             return True
         except Exception as e:
-            print(f"Erro ao criar template: {e}")
+            messagebox.showerror("Erro", f"Erro ao criar template: {e}")
             return False
 
 
 class TemplateGeneratorModule:
-    """Módulo completo de geração de templates com design Liquid Glass"""
+    """Interface principal da aplicação"""
     
-    def __init__(self, parent, settings):
+    def __init__(self, parent, settings=None):
         self.parent = parent
-        self.settings = settings
+        self.settings = settings or {}
         self.window = None
         
         self.config_manager = ConfigManager()
@@ -456,14 +371,8 @@ class TemplateGeneratorModule:
         self.default_doc_generator = DefaultDocumentGenerator()
         
         self.campos_config = self.config_manager.load_config()
-        self.campos_entries = {}
-        
-        self.progress = None
-        self.log_text = None
-        self.gerar_btn = None
-        
-        LiquidGlassStyle.configure_style()
-
+        self.campos_entries: Dict[str, tk.Entry] = {}
+    
     def show(self):
         """Mostra interface completa"""
         if self.window and self.window.winfo_exists():
@@ -476,7 +385,11 @@ class TemplateGeneratorModule:
         self.window.minsize(900, 700)
         
         # Configurar cor de fundo
-        self.window.configure(bg=LiquidGlassStyle.BG_PRIMARY)
+        try:
+            from modules.styles import LiquidGlassStyle
+            self.window.configure(bg=LiquidGlassStyle.BG_PRIMARY)
+        except ImportError:
+            self.window.configure(bg='#f0f0f0')
         
         self._create_complete_ui()
 
@@ -487,448 +400,200 @@ class TemplateGeneratorModule:
         self.window = None
 
     def _create_complete_ui(self):
-        """Cria interface completa com design Liquid Glass"""
-        main_frame = tk.Frame(self.window, bg=LiquidGlassStyle.BG_PRIMARY)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        """Cria a interface completa do módulo"""
+        # Frame principal
+        main_frame = ttk.Frame(self.window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Header com gradiente visual
-        self._create_header(main_frame)
+        self._configure_grid_weights()
+        self._create_title_section(main_frame)
+        self._create_dynamic_fields_section(main_frame)
+        self._create_file_section(main_frame)
+        self._create_control_buttons(main_frame)
+        self._create_progress_section(main_frame)
+        self._create_log_section(main_frame)
         
-        # Notebook com abas estilizadas
-        notebook = ttk.Notebook(main_frame, style="Glass.TNotebook")
-        notebook.pack(fill=tk.BOTH, expand=True, pady=20)
-        
-        # Abas
-        config_frame = tk.Frame(notebook, bg=LiquidGlassStyle.BG_CARD)
-        notebook.add(config_frame, text="⚙️  Configuração")
-        
-        fields_frame = tk.Frame(notebook, bg=LiquidGlassStyle.BG_CARD)
-        notebook.add(fields_frame, text="📝  Campos")
-        
-        log_frame = tk.Frame(notebook, bg=LiquidGlassStyle.BG_CARD)
-        notebook.add(log_frame, text="📋  Log")
-        
-        self._create_config_tab(config_frame)
-        self._create_fields_tab(fields_frame)
-        self._create_log_tab(log_frame)
+        self._set_default_template()
 
-    def _create_header(self, parent):
-        """Cria header com design moderno"""
-        header_frame = tk.Frame(parent, bg=LiquidGlassStyle.BG_PRIMARY)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Título com efeito de brilho
-        title_label = ttk.Label(
-            header_frame, 
-            text="📄 GERADOR DE TEMPLATES", 
-            style="Title.TLabel"
-        )
-        title_label.pack()
-        
-        subtitle_label = ttk.Label(
-            header_frame,
-            text="Crie documentos em lote com design profissional e automação inteligente",
-            style="Subtitle.TLabel"
-        )
-        subtitle_label.pack(pady=(5, 0))
+    def _configure_grid_weights(self) -> None:
+        """Configura os pesos do grid para redimensionamento"""
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(0, weight=1)
 
-    def _create_config_tab(self, parent):
-        """Cria aba de configuração com cards"""
-        container = tk.Frame(parent, bg=LiquidGlassStyle.BG_CARD)
-        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+    def _create_title_section(self, parent) -> None:
+        """Cria a seção do título"""
+        titulo = ttk.Label(parent, text="📄 PrintF - Gerar Templates", 
+                          font=("Arial", 16, "bold"))
+        titulo.grid(row=0, column=0, columnspan=3, pady=(0, 20))
         
-        # Card para CSV
-        self._create_file_card(
-            container, 
-            "📊 Arquivo CSV com Casos de Teste", 
-            "csv_var",
-            self._select_csv,
-            0,
-            required=True
-        )
-        
-        # Card para Template
-        self._create_file_card(
-            container,
-            "📄 Template DOCX (Opcional)",
-            "template_var",
-            self._select_template,
-            1
-        )
-        
-        # Card para Output
-        self._create_file_card(
-            container,
-            "📁 Diretório de Saída",
-            "output_var",
-            self._select_output,
-            2,
-            default_value=self.settings.get('output_dir', 'evidencias_geradas')
-        )
-        
-        # Botões de ação
-        self._create_action_buttons(container)
-        
-        # Card de informações
-        self._create_info_card(container)
+        ttk.Separator(parent, orient='horizontal').grid(
+            row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
 
-    def _create_file_card(self, parent, title, var_name, command, row, required=False, default_value=""):
-        """Cria um card para seleção de arquivo"""
-        card = tk.Frame(parent, bg=LiquidGlassStyle.BG_SECONDARY, relief="flat")
-        card.pack(fill=tk.X, pady=10)
-        
-        # Padding interno
-        card_content = tk.Frame(card, bg=LiquidGlassStyle.BG_SECONDARY)
-        card_content.pack(fill=tk.X, padx=15, pady=15)
-        
-        # Título
-        title_text = f"{title} {'*' if required else ''}"
-        title_label = tk.Label(
-            card_content,
-            text=title_text,
-            bg=LiquidGlassStyle.BG_SECONDARY,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            font=("Segoe UI", 11, "bold")
-        )
-        title_label.pack(anchor="w", pady=(0, 10))
-        
-        # Frame para entry e botão
-        input_frame = tk.Frame(card_content, bg=LiquidGlassStyle.BG_SECONDARY)
-        input_frame.pack(fill=tk.X)
-        
-        # Entry
-        var = tk.StringVar(value=default_value)
-        setattr(self, var_name, var)
-        
-        entry = tk.Entry(
-            input_frame,
-            textvariable=var,
-            bg=LiquidGlassStyle.BG_PRIMARY,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            insertbackground=LiquidGlassStyle.ACCENT_PRIMARY,
-            relief="flat",
-            font=("Segoe UI", 10),
-            bd=0
-        )
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, ipadx=10)
-        
-        # Botão
-        btn = tk.Button(
-            input_frame,
-            text="📂 Procurar",
-            command=command,
-            bg=LiquidGlassStyle.BG_HOVER,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            activebackground=LiquidGlassStyle.ACCENT_PRIMARY,
-            activeforeground=LiquidGlassStyle.BG_PRIMARY,
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            cursor="hand2",
-            bd=0,
-            padx=20,
-            pady=8
-        )
-        btn.pack(side=tk.RIGHT, padx=(10, 0))
+    def _create_dynamic_fields_section(self, parent) -> None:
+        """Cria os campos dinâmicos baseados na configuração"""
+        ttk.Label(parent, text="Dados dos Testes:", 
+                 font=("Arial", 12, "bold")).grid(
+                     row=2, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
 
-    def _create_action_buttons(self, parent):
-        """Cria botões de ação com estilo moderno"""
-        button_frame = tk.Frame(parent, bg=LiquidGlassStyle.BG_CARD)
-        button_frame.pack(pady=20)
+        for i, campo_info in enumerate(self.campos_config):
+            self._create_field_row(parent, campo_info, i)
+
+    def _create_field_row(self, parent, campo_info: Dict, row_index: int) -> None:
+        """Cria uma linha de campo na interface"""
+        label_text = campo_info['label']
+        campo_key = campo_info['key']
         
-        # Botão principal
-        self.gerar_btn = tk.Button(
-            button_frame,
-            text="🎬 GERAR TEMPLATES",
-            command=self._iniciar_processamento,
-            bg=LiquidGlassStyle.ACCENT_PRIMARY,
-            fg=LiquidGlassStyle.BG_PRIMARY,
-            activebackground=LiquidGlassStyle.ACCENT_SECONDARY,
-            activeforeground=LiquidGlassStyle.TEXT_PRIMARY,
-            relief="flat",
-            font=("Segoe UI", 12, "bold"),
-            cursor="hand2",
-            bd=0,
-            padx=30,
-            pady=12
-        )
+        ttk.Label(parent, text=label_text).grid(
+            row=3 + row_index, column=0, sticky=tk.W, pady=2)
+        
+        entry = ttk.Entry(parent, width=40)
+        entry.grid(row=3 + row_index, column=1, columnspan=2, 
+                  sticky=(tk.W, tk.E), pady=2, padx=(5, 0))
+        
+        self.campos_entries[campo_key] = entry
+
+    def _create_file_section(self, parent) -> None:
+        """Cria a seção de seleção de arquivos"""
+        next_row = 3 + len(self.campos_config)
+        
+        ttk.Separator(parent, orient='horizontal').grid(
+            row=next_row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+        ttk.Label(parent, text="Arquivos:", 
+                 font=("Arial", 12, "bold")).grid(
+                     row=next_row + 1, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
+
+        # Campos de arquivo
+        self.csv_entry = self._create_file_field(parent, "CSV:*", next_row + 2, self.selecionar_csv)
+        self.template_entry = self._create_file_field(parent, "Template (Opcional):", next_row + 3, self.selecionar_template)
+        self.pasta_entry = self._create_file_field(parent, "Pasta Saída:", next_row + 4, self.selecionar_pasta)
+
+        # Info sobre campos obrigatórios
+        info_label = ttk.Label(parent, text="* Campos obrigatórios", font=("Arial", 9), foreground="gray")
+        info_label.grid(row=next_row + 5, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
+    def _create_file_field(self, parent, label: str, row: int, command) -> ttk.Entry:
+        """Cria um campo de seleção de arquivo"""
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky=tk.W, pady=2)
+        entry = ttk.Entry(parent, width=40)
+        entry.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=2, padx=(5, 0))
+        ttk.Button(parent, text="Procurar", command=command).grid(
+            row=row, column=2, padx=(5, 0))
+        return entry
+
+    def _create_control_buttons(self, parent) -> None:
+        """Cria os botões de controle - REMOVIDO O BOTÃO DE TEMPLATE EXEMPLO"""
+        next_row = 3 + len(self.campos_config) + 6
+        
+        ttk.Separator(parent, orient='horizontal').grid(
+            row=next_row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+        button_frame = ttk.Frame(parent)
+        button_frame.grid(row=next_row + 1, column=0, columnspan=3, pady=10)
+        
+        self.gerar_btn = ttk.Button(button_frame, text="▶️ Gerar Documentos", 
+                                   command=self.iniciar_processamento)
         self.gerar_btn.pack(side=tk.LEFT, padx=5)
         
-        # Botão secundário
-        clear_btn = tk.Button(
-            button_frame,
-            text="🔄 LIMPAR",
-            command=self._limpar_campos,
-            bg=LiquidGlassStyle.BG_HOVER,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            activebackground=LiquidGlassStyle.BG_SECONDARY,
-            relief="flat",
-            font=("Segoe UI", 10),
-            cursor="hand2",
-            bd=0,
-            padx=20,
-            pady=10
-        )
-        clear_btn.pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="🔄 Limpar", command=self.limpar_campos).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="❌ Sair", command=self.hide).pack(side=tk.LEFT, padx=5)
 
-    def _create_info_card(self, parent):
-        """Cria card de informações"""
-        info_card = tk.Frame(parent, bg=LiquidGlassStyle.BG_SECONDARY, relief="flat")
-        info_card.pack(fill=tk.X, pady=10)
+    def _create_progress_section(self, parent) -> None:
+        """Cria a seção de progresso"""
+        next_row = 3 + len(self.campos_config) + 8
         
-        content = tk.Frame(info_card, bg=LiquidGlassStyle.BG_SECONDARY)
-        content.pack(fill=tk.X, padx=15, pady=15)
-        
-        title = tk.Label(
-            content,
-            text="ℹ️  Informações Importantes",
-            bg=LiquidGlassStyle.BG_SECONDARY,
-            fg=LiquidGlassStyle.ACCENT_PRIMARY,
-            font=("Segoe UI", 11, "bold")
-        )
-        title.pack(anchor="w", pady=(0, 10))
-        
-        info_text = """• O CSV deve conter uma coluna 'Nome' com os casos de teste
-• Template é opcional - será criado automaticamente se não fornecido
-• Os campos personalizados serão preenchidos em todos os documentos
-• Suporte automático a múltiplos encodings (UTF-8, Latin-1, etc.)
-• Geração robusta com fallback automático em caso de erros"""
-        
-        info_label = tk.Label(
-            content,
-            text=info_text,
-            bg=LiquidGlassStyle.BG_SECONDARY,
-            fg=LiquidGlassStyle.TEXT_SECONDARY,
-            font=("Segoe UI", 9),
-            justify="left"
-        )
-        info_label.pack(anchor="w")
+        ttk.Separator(parent, orient='horizontal').grid(
+            row=next_row, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
-    def _create_fields_tab(self, parent):
-        """Cria aba de campos com scroll"""
-        container = tk.Frame(parent, bg=LiquidGlassStyle.BG_CARD)
-        container.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(parent, text="Progresso:").grid(
+            row=next_row + 1, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         
-        # Canvas para scroll
-        canvas = tk.Canvas(container, bg=LiquidGlassStyle.BG_CARD, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=LiquidGlassStyle.BG_CARD)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Título
-        title_frame = tk.Frame(scrollable_frame, bg=LiquidGlassStyle.BG_CARD)
-        title_frame.pack(fill=tk.X, padx=20, pady=20)
-        
-        title_label = tk.Label(
-            title_frame,
-            text="📝 Dados para Preenchimento",
-            bg=LiquidGlassStyle.BG_CARD,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            font=("Segoe UI", 14, "bold")
-        )
-        title_label.pack(anchor="w")
-        
-        subtitle = tk.Label(
-            title_frame,
-            text="Preencha os campos abaixo que serão aplicados a todos os documentos",
-            bg=LiquidGlassStyle.BG_CARD,
-            fg=LiquidGlassStyle.TEXT_SECONDARY,
-            font=("Segoe UI", 9)
-        )
-        subtitle.pack(anchor="w", pady=(5, 0))
-        
-        # Campos dinâmicos
-        for i, campo_info in enumerate(self.campos_config):
-            self._create_field_entry(scrollable_frame, campo_info, i)
-        
-        canvas.pack(side="left", fill="both", expand=True, padx=20, pady=20)
-        scrollbar.pack(side="right", fill="y", pady=20)
+        self.progress = ttk.Progressbar(parent, mode='determinate')
+        self.progress.grid(row=next_row + 2, column=0, columnspan=3, 
+                          sticky=(tk.W, tk.E), pady=(0, 10))
 
-    def _create_field_entry(self, parent, campo_info, index):
-        """Cria entrada de campo individual"""
-        field_card = tk.Frame(parent, bg=LiquidGlassStyle.BG_SECONDARY, relief="flat")
-        field_card.pack(fill=tk.X, padx=20, pady=8)
+    def _create_log_section(self, parent) -> None:
+        """Cria a seção de log"""
+        next_row = 3 + len(self.campos_config) + 10
         
-        content = tk.Frame(field_card, bg=LiquidGlassStyle.BG_SECONDARY)
-        content.pack(fill=tk.X, padx=15, pady=12)
+        ttk.Label(parent, text="Log de Execução:").grid(
+            row=next_row, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         
-        # Label do campo
-        label = tk.Label(
-            content,
-            text=campo_info['label'],
-            bg=LiquidGlassStyle.BG_SECONDARY,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            font=("Segoe UI", 10, "bold"),
-            width=15,
-            anchor="w"
-        )
-        label.pack(side=tk.LEFT, padx=(0, 15))
+        self.log_text = scrolledtext.ScrolledText(parent, width=70, height=15, state='disabled')
+        self.log_text.grid(row=next_row + 1, column=0, columnspan=3, 
+                          sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
         
-        # Entry do campo
-        entry = tk.Entry(
-            content,
-            bg=LiquidGlassStyle.BG_PRIMARY,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            insertbackground=LiquidGlassStyle.ACCENT_PRIMARY,
-            relief="flat",
-            font=("Segoe UI", 10),
-            bd=0
-        )
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, ipadx=10)
-        
-        self.campos_entries[campo_info['key']] = entry
+        parent.rowconfigure(next_row + 1, weight=1)
 
-    def _create_log_tab(self, parent):
-        """Cria aba de log com design moderno"""
-        container = tk.Frame(parent, bg=LiquidGlassStyle.BG_CARD)
-        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        # Título
-        title_label = tk.Label(
-            container,
-            text="📋 Log de Execução",
-            bg=LiquidGlassStyle.BG_CARD,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            font=("Segoe UI", 14, "bold")
-        )
-        title_label.pack(anchor="w", pady=(0, 15))
-        
-        # Log text com estilo
-        log_frame = tk.Frame(container, bg=LiquidGlassStyle.BG_SECONDARY, relief="flat")
-        log_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame,
-            wrap=tk.WORD,
-            bg=LiquidGlassStyle.BG_PRIMARY,
-            fg=LiquidGlassStyle.TEXT_PRIMARY,
-            insertbackground=LiquidGlassStyle.ACCENT_PRIMARY,
-            relief="flat",
-            font=("Consolas", 9),
-            bd=0,
-            padx=10,
-            pady=10
-        )
-        self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
-        
-        # Barra de progresso
-        progress_frame = tk.Frame(container, bg=LiquidGlassStyle.BG_CARD)
-        progress_frame.pack(fill=tk.X, pady=(15, 0))
-        
-        progress_label = tk.Label(
-            progress_frame,
-            text="Progresso:",
-            bg=LiquidGlassStyle.BG_CARD,
-            fg=LiquidGlassStyle.TEXT_SECONDARY,
-            font=("Segoe UI", 10)
-        )
-        progress_label.pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.progress = ttk.Progressbar(
-            progress_frame,
-            mode='determinate',
-            style="Glass.Horizontal.TProgressbar"
-        )
-        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    def _set_default_template(self) -> None:
+        """Preenche template padrão se existir - AGORA CRIA AUTOMATICAMENTE SE NÃO EXISTIR"""
+        template_path = 'template_evidencias.docx'
+        if not Path(template_path).exists():
+            # Cria template automaticamente se não existir
+            self.log("📝 Criando template padrão automaticamente...")
+            if self._criar_template_exemplo_automatico():
+                self.template_entry.insert(0, template_path)
+                self.log("✅ Template padrão criado com sucesso!")
+        else:
+            self.template_entry.insert(0, template_path)
 
-    def _select_csv(self):
-        """Seleciona arquivo CSV"""
-        filename = filedialog.askopenfilename(
-            title="Selecione o arquivo CSV",
-            filetypes=[("CSV Files", "*.csv"), ("Todos os arquivos", "*.*")]
-        )
-        if filename:
-            self.csv_var.set(filename)
-            self._log(f"📊 CSV selecionado: {os.path.basename(filename)}")
+    def _criar_template_exemplo_automatico(self) -> bool:
+        """Cria template de exemplo automaticamente (sem interação do usuário)"""
+        try:
+            return TemplateGenerator.create_example_template(self.campos_config)
+        except Exception as e:
+            self.log(f"⚠️ Aviso: Não foi possível criar template automático: {e}")
+            return False
 
-    def _select_template(self):
-        """Seleciona template DOCX"""
-        filename = filedialog.askopenfilename(
-            title="Selecione o template DOCX",
-            filetypes=[("Documentos Word", "*.docx"), ("Todos os arquivos", "*.*")]
-        )
-        if filename:
-            self.template_var.set(filename)
-            self._log(f"📄 Template selecionado: {os.path.basename(filename)}")
+    # Métodos de seleção de arquivos
+    def selecionar_csv(self) -> None:
+        self._select_file(self.csv_entry, "Selecionar arquivo CSV", 
+                         [("CSV Files", "*.csv"), ("Todos os arquivos", "*.*")])
 
-    def _select_output(self):
-        """Seleciona diretório de saída"""
-        directory = filedialog.askdirectory(title="Selecione o diretório de saída")
-        if directory:
-            self.output_var.set(directory)
-            self._log(f"📁 Diretório de saída: {directory}")
+    def selecionar_template(self) -> None:
+        self._select_file(self.template_entry, "Selecionar template DOCX", 
+                         [("Word Documents", "*.docx"), ("Todos os arquivos", "*.*")])
 
-    def _limpar_campos(self):
-        """Limpa todos os campos"""
-        self.csv_var.set("")
-        self.template_var.set("")
-        self.output_var.set(self.settings.get('output_dir', 'evidencias_geradas'))
+    def selecionar_pasta(self) -> None:
+        pasta = filedialog.askdirectory(title="Selecionar pasta de saída")
+        if pasta:
+            self.pasta_entry.delete(0, tk.END)
+            self.pasta_entry.insert(0, pasta)
+
+    def _select_file(self, entry_widget: ttk.Entry, title: str, filetypes: List[Tuple]) -> None:
+        """Seleciona um arquivo e atualiza o campo de entrada"""
+        arquivo = filedialog.askopenfilename(title=title, filetypes=filetypes)
+        if arquivo:
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, arquivo)
+
+    def limpar_campos(self) -> None:
+        """Limpa todos os campos da interface"""
+        for entry in [self.csv_entry, self.template_entry, self.pasta_entry]:
+            entry.delete(0, tk.END)
         
         for entry in self.campos_entries.values():
             entry.delete(0, tk.END)
-            
-        self._clear_log()
-        if self.progress:
-            self.progress['value'] = 0
-            
-        self._log("🔄 Campos limpos")
-
-    def _clear_log(self):
-        """Limpa o log"""
-        if self.log_text:
-            self.log_text.delete(1.0, tk.END)
-
-    def _log(self, mensagem):
-        """Adiciona mensagem ao log com cores"""
-        if self.log_text:
-            self.log_text.insert(tk.END, mensagem + "\n")
-            self.log_text.see(tk.END)
-            if self.window:
-                self.window.update()
-
-    def _iniciar_processamento(self):
-        """Inicia processamento em thread separada"""
-        if not self._validar_entradas():
-            return
-            
-        self.gerar_btn.config(state="disabled")
+        
         self._clear_log()
         self.progress['value'] = 0
-        
-        thread = threading.Thread(target=self._processar_documentos)
-        thread.daemon = True
-        thread.start()
 
-    def _validar_entradas(self):
-        """Valida as entradas do usuário"""
-        if not self.csv_var.get():
-            messagebox.showerror("Erro", "Selecione um arquivo CSV!")
-            return False
-            
-        if not os.path.exists(self.csv_var.get()):
-            messagebox.showerror("Erro", "Arquivo CSV não encontrado!")
-            return False
-            
-        if self.template_var.get() and not os.path.exists(self.template_var.get()):
-            messagebox.showwarning("Aviso", "Template não encontrado. Será criado automaticamente.")
-            
-        # Valida campos obrigatórios
-        try:
-            dados_fixos = self._get_dados_fixos()
-        except ValueError as e:
-            messagebox.showerror("Erro", str(e))
-            return False
-            
-        return True
+    def _clear_log(self) -> None:
+        """Limpa o log de execução"""
+        self.log_text.config(state='normal')
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state='disabled')
 
-    def _get_dados_fixos(self):
-        """Obtém dados dos campos fixos"""
+    def log(self, mensagem: str) -> None:
+        """Adiciona mensagem ao log"""
+        self.log_text.config(state='normal')
+        self.log_text.insert(tk.END, mensagem + "\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state='disabled')
+        self.window.update()
+
+    def _get_fixed_data(self) -> Dict[str, str]:
+        """Obtém os dados dos campos fixos"""
         dados = {}
         for campo_key, entry in self.campos_entries.items():
             valor = entry.get().strip()
@@ -937,77 +602,90 @@ class TemplateGeneratorModule:
             dados[campo_key] = valor
         return dados
 
-    def _processar_documentos(self):
-        """Processa os documentos em lote"""
+    def _validate_inputs(self, csv_path: str) -> bool:
+        """Valida os inputs necessários (apenas CSV é obrigatório)"""
+        if not csv_path:
+            messagebox.showerror("Erro", "Selecione um arquivo CSV!")
+            return False
+        
+        if not Path(csv_path).exists():
+            messagebox.showerror("Erro", "Arquivo CSV não encontrado!")
+            return False
+        
+        return True
+
+    def processar_documentos(self) -> None:
+        """Processa os documentos em lote - versão robusta que nunca falha"""
         try:
-            dados_fixos = self._get_dados_fixos()
+            # Obter dados fixos
+            try:
+                dados_fixos = self._get_fixed_data()
+            except ValueError as e:
+                messagebox.showerror("Erro", str(e))
+                self.gerar_btn.config(state='normal')
+                return
             
-            csv_path = self.csv_var.get()
-            template_path = self.template_var.get().strip()
-            output_folder = self.output_var.get().strip() or 'evidencias_geradas'
+            csv_path = self.csv_entry.get()
+            template_path = self.template_entry.get().strip()
+            output_folder = self.pasta_entry.get().strip() or 'evidencias_geradas'
             
-            self._log("🚀 INICIANDO PROCESSAMENTO EM LOTE")
-            self._log("=" * 60)
-            
-            # Garantir template válido
+            if not self._validate_inputs(csv_path):
+                self.gerar_btn.config(state='normal')
+                return
+
+            # Garantir que temos um template válido
             template_path = self._garantir_template_valido(template_path)
             
             # Criar pasta de saída
             try:
                 Path(output_folder).mkdir(exist_ok=True)
-                self._log(f"📁 Pasta de saída: {output_folder}")
             except Exception as e:
-                self._log(f"⚠️ Aviso: Não foi possível criar a pasta '{output_folder}': {e}")
-                self._log("📂 Usando pasta atual...")
+                self.log(f"⚠️ Aviso: Não foi possível criar a pasta '{output_folder}': {e}")
+                self.log("📁 Usando pasta atual para salvar os documentos...")
                 output_folder = '.'
             
-            # Ler CSV
-            self._log("📖 Lendo arquivo CSV...")
+            self.log("📖 Lendo arquivo CSV...")
             casos_teste = self.csv_reader.read_csv(csv_path)
             
             if not casos_teste:
-                self._log("❌ Nenhum caso de teste encontrado no CSV")
                 messagebox.showerror("Erro", "Não foi possível ler os casos de teste do CSV")
-                self.gerar_btn.config(state="normal")
+                self.gerar_btn.config(state='normal')
                 return
             
-            self._log(f"📊 Encontrados {len(casos_teste)} casos de teste\n")
-            
             # Determinar modo de operação
-            use_default_template = not (template_path and Path(template_path).exists())
-            
-            if use_default_template:
-                self._log("📝 Gerando documentos com template padrão...")
+            use_default_template = True
+            if template_path and Path(template_path).exists():
+                use_default_template = False
+                self.log("📁 Usando template personalizado...")
             else:
-                self._log("📄 Usando template personalizado...")
+                self.log("📝 Gerando documentos com template padrão...")
             
-            # Processar cada caso
-            self._processar_casos_teste(casos_teste, dados_fixos, template_path, 
-                                       output_folder, use_default_template)
+            self._process_test_cases(casos_teste, dados_fixos, template_path, output_folder, use_default_template)
             
         except Exception as e:
-            self._log(f"❌ Erro inesperado: {e}")
+            self.log(f"❌ Erro inesperado: {e}")
             messagebox.showerror("Erro", f"Erro inesperado: {e}")
-        finally:
-            self.gerar_btn.config(state="normal")
+            self.gerar_btn.config(state='normal')
 
-    def _garantir_template_valido(self, template_path):
-        """Garante que temos um template válido"""
+    def _garantir_template_valido(self, template_path: str) -> str:
+        """Garante que temos um template válido, criando automaticamente se necessário"""
         if not template_path or not Path(template_path).exists():
-            self._log("🔍 Nenhum template válido encontrado, criando automaticamente...")
-            if TemplateGenerator.create_example_template(self.campos_config):
+            self.log("📝 Nenhum template válido encontrado, criando automaticamente...")
+            if self._criar_template_exemplo_automatico():
                 new_template_path = 'template_evidencias.docx'
-                self.template_var.set(new_template_path)
-                self._log("✅ Template padrão criado e configurado!")
+                self.template_entry.delete(0, tk.END)
+                self.template_entry.insert(0, new_template_path)
+                self.log("✅ Template padrão criado e configurado automaticamente")
                 return new_template_path
             else:
-                self._log("⚠️ Não foi possível criar template, usando geração padrão...")
+                self.log("⚠️ Não foi possível criar template, usando geração padrão...")
                 return ""
         return template_path
 
-    def _processar_casos_teste(self, casos_teste, dados_fixos, template_path, 
-                              output_folder, use_default_template):
+    def _process_test_cases(self, casos_teste: List[str], dados_fixos: Dict[str, str], 
+                           template_path: str, output_folder: str, use_default_template: bool) -> None:
         """Processa cada caso de teste individualmente"""
+        self.log(f"📊 Encontrados {len(casos_teste)} casos de teste\n")
         self.progress['maximum'] = len(casos_teste)
         
         sucessos = 0
@@ -1023,126 +701,141 @@ class TemplateGeneratorModule:
         for i, caso_teste in enumerate(casos_teste, 1):
             try:
                 self.progress['value'] = i
-                self._log(f"📄 [{i}/{len(casos_teste)}] Processando: {caso_teste}")
+                self.log(f"🔄 Processando: {caso_teste}")
                 
-                if self._gerar_documento_individual(caso_teste, dados_fixos, template_path,
-                                                   output_folder, field_mapping, campo_nome,
-                                                   arquivos_gerados, use_default_template, i):
+                if self._generate_single_document(caso_teste, dados_fixos, template_path, 
+                                                output_folder, field_mapping, campo_nome, 
+                                                arquivos_gerados, use_default_template):
                     sucessos += 1
                 else:
-                    erros.append(caso_teste)
+                    erros.append((caso_teste, "Erro na geração"))
                     
             except Exception as e:
-                self._log(f"❌ Erro no caso '{caso_teste}': {e}")
-                erros.append(caso_teste)
-        
-        # Resultado final
-        self._mostrar_resultado_final(sucessos, len(erros), len(casos_teste), 
-                                     output_folder, arquivos_gerados)
-
-    def _gerar_documento_individual(self, caso_teste, dados_fixos, template_path,
-                                   output_folder, field_mapping, campo_nome,
-                                   arquivos_gerados, use_default_template, index):
-        """Gera um documento individual"""
-        try:
-            dados_completos = dados_fixos.copy()
-            dados_completos['Caso de Teste'] = caso_teste
+                self.log(f"❌ Erro no caso '{caso_teste}': {e}\n")
+                erros.append((caso_teste, str(e)))
             
-            # Usar template ou criar padrão
-            if not use_default_template and template_path:
+            time.sleep(0.05)  # Pequena pausa para não sobrecarregar
+            
+        self._show_final_results(sucessos, len(erros), len(casos_teste), 
+                               output_folder, arquivos_gerados)
+        self.gerar_btn.config(state='normal')
+
+    def _generate_single_document(self, caso_teste: str, dados_fixos: Dict[str, str], 
+                                template_path: str, output_folder: str, 
+                                field_mapping: Dict[str, str], campo_nome: str,
+                                arquivos_gerados: set, use_default_template: bool) -> bool:
+        """Gera um único documento - versão robusta"""
+        try:
+            # Usar template se fornecido e existir, caso contrário criar documento padrão
+            if not use_default_template:
                 try:
                     doc = Document(template_path)
+                    dados_completos = dados_fixos.copy()
+                    dados_completos['Caso de Teste'] = caso_teste
                     self.doc_processor.fill_template(doc, dados_completos, field_mapping)
                 except Exception as e:
-                    self._log(f"⚠️ Erro ao usar template: {e}. Usando padrão...")
+                    self.log(f"⚠️ Erro ao usar template personalizado: {e}. Usando template padrão...")
                     doc = self.default_doc_generator.create_default_document(
-                        dados_completos, self.campos_config)
+                        dados_fixos.copy(), self.campos_config)
+                    doc = self.default_doc_generator.create_default_document(
+                        {**dados_fixos, 'Caso de Teste': caso_teste}, self.campos_config)
             else:
+                # Criar documento padrão com todos os dados
+                dados_completos = dados_fixos.copy()
+                dados_completos['Caso de Teste'] = caso_teste
                 doc = self.default_doc_generator.create_default_document(
                     dados_completos, self.campos_config)
             
-            # Gerar nome único
+            # Gerar nome do arquivo
             nome_base = self.doc_processor.clean_filename(caso_teste)
-            nome_arquivo = self._gerar_nome_arquivo_unico(
-                f"Evidencia_{dados_fixos[campo_nome]}_{nome_base}.docx",
-                arquivos_gerados, index)
+            nome_arquivo = self._generate_unique_filename(
+                f"Evidencia_{dados_fixos[campo_nome]}_{nome_base}.docx", arquivos_gerados)
             
             caminho_completo = Path(output_folder) / nome_arquivo
             
-            # Salvar documento
+            # Tentar salvar o documento
             try:
                 doc.save(caminho_completo)
-                self._log(f"✅ Salvo: {nome_arquivo}")
+                self.log(f"✅ Salvo: {nome_arquivo}")
                 return True
             except Exception as e:
-                # Fallback com nome alternativo
-                nome_alternativo = f"Evidencia_{index}_{datetime.now().strftime('%H%M%S')}.docx"
-                caminho_alternativo = Path(output_folder) / nome_alternativo
-                doc.save(caminho_alternativo)
-                self._log(f"✅ Salvo (nome alternativo): {nome_alternativo}")
-                arquivos_gerados.add(nome_alternativo)
-                return True
-                
+                # Fallback: tentar salvar com nome diferente
+                try:
+                    nome_alternativo = f"Evidencia_{i}_{datetime.now().strftime('%H%M%S')}.docx"
+                    caminho_alternativo = Path(output_folder) / nome_alternativo
+                    doc.save(caminho_alternativo)
+                    self.log(f"✅ Salvo (nome alternativo): {nome_alternativo}")
+                    arquivos_gerados.add(nome_alternativo)
+                    return True
+                except Exception as e2:
+                    self.log(f"❌ Erro ao salvar documento: {e2}")
+                    return False
+            
         except Exception as e:
-            self._log(f"❌ Erro crítico ao gerar: {e}")
+            self.log(f"❌ Erro crítico ao gerar documento: {e}")
             return False
 
-    def _gerar_nome_arquivo_unico(self, nome_base, arquivos_gerados, fallback_index):
+    def _generate_unique_filename(self, filename: str, existing_files: set) -> str:
         """Gera um nome de arquivo único"""
         contador = 1
-        nome_final = nome_base
+        nome_original = filename
         
-        while nome_final in arquivos_gerados:
-            base, ext = os.path.splitext(nome_base)
-            nome_final = f"{base}_{contador}{ext}"
+        while filename in existing_files:
+            nome, extensao = os.path.splitext(nome_original)
+            filename = f"{nome}_{contador}{extensao}"
             contador += 1
         
-        arquivos_gerados.add(nome_final)
-        return nome_final
+        existing_files.add(filename)
+        return filename
 
-    def _mostrar_resultado_final(self, sucessos, erros, total, output_folder, arquivos_gerados):
-        """Mostra resultado final do processamento"""
-        self._log("\n" + "=" * 60)
-        self._log("🎉 PROCESSAMENTO CONCLUÍDO!")
-        self._log("=" * 60)
-        self._log(f"📊 Total processado: {total}")
-        self._log(f"✅ Sucessos: {sucessos}")
-        self._log(f"❌ Erros: {erros}")
-        self._log(f"📁 Pasta: {Path(output_folder).absolute()}")
+    def _show_final_results(self, sucessos: int, erros: int, total: int, 
+                           output_folder: str, arquivos_gerados: set) -> None:
+        """Mostra os resultados finais do processamento"""
+        self.log("\n" + "="*50)
+        self.log("📋 RESUMO DA EXECUÇÃO")
+        self.log("="*50)
+        self.log(f"✅ Documentos gerados com sucesso: {sucessos}")
+        self.log(f"❌ Documentos com erro: {erros}")
+        self.log(f"📊 Total processado: {total}")
         
         if sucessos > 0:
-            self._log(f"\n📋 Arquivos gerados:")
-            for arquivo in sorted(arquivos_gerados)[:10]:
-                self._log(f"  • {arquivo}")
-            if len(arquivos_gerados) > 10:
-                self._log(f"  • ... e mais {len(arquivos_gerados) - 10} arquivos")
-        
-        if erros == 0:
-            messagebox.showinfo(
-                "Sucesso", 
-                f"✅ Todos os {sucessos} documentos foram gerados com sucesso!\n\n"
-                f"📁 Pasta: {Path(output_folder).absolute()}"
-            )
+            self.log(f"📁 Pasta de saída: {output_folder}")
+            self.log(f"📄 Arquivos gerados: {len(arquivos_gerados)}")
+            
+            if messagebox.askyesno("Concluído", 
+                                 f"Processamento concluído!\n"
+                                 f"Sucessos: {sucessos}\n"
+                                 f"Erros: {erros}\n\n"
+                                 f"Deseja abrir a pasta de saída?"):
+                try:
+                    os.startfile(output_folder)
+                except:
+                    self.log("⚠️ Não foi possível abrir a pasta automaticamente")
         else:
-            messagebox.showwarning(
-                "Concluído com avisos",
-                f"Processo concluído com {erros} erro(s).\n"
-                f"✅ {sucessos} documentos gerados.\n\n"
-                f"📁 Pasta: {Path(output_folder).absolute()}"
-            )
+            messagebox.showwarning("Atenção", "Nenhum documento foi gerado com sucesso!")
+
+    def iniciar_processamento(self) -> None:
+        """Inicia o processamento em thread separada"""
+        self.gerar_btn.config(state='disabled')
+        self._clear_log()
+        
+        thread = threading.Thread(target=self.processar_documentos, daemon=True)
+        thread.start()
 
 
-# Exemplo de uso (para testes independentes)
+# Função de compatibilidade para manter a interface antiga
+def create_template_generator(parent, settings=None):
+    """Função de fábrica para criar o módulo"""
+    return TemplateGeneratorModule(parent, settings)
+
+
+# Teste local do módulo
 if __name__ == "__main__":
     root = tk.Tk()
-    root.withdraw()
+    root.title("Teste Template Generator")
+    root.geometry("800x600")
     
-    settings = {
-        'template_dir': '.',
-        'output_dir': 'evidencias_geradas'
-    }
-    
-    module = TemplateGeneratorModule(root, settings)
-    module.show()
+    app = TemplateGeneratorModule(root)
+    app.show()
     
     root.mainloop()

@@ -16,7 +16,10 @@ class AppConfig:
     CONFIG_DIR = BASE_DIR / "Config"
     LOGS_DIR = BASE_DIR / "Logs"
     
-    # Cores do tema
+    # Configurações de tema
+    THEME = 'liquid_glass'  # 'default' ou 'liquid_glass'
+    
+    # Cores do tema padrão (fallback)
     COLORS = {
         'primary': "#2c3e50",
         'secondary': "#3498db", 
@@ -62,6 +65,19 @@ class AppConfig:
         'images': ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.gif'],
         'documents': ['.docx', '.pdf'],
         'data': ['.csv', '.json', '.xml']
+    }
+    
+    # Configurações de UI responsiva
+    UI_SETTINGS = {
+        'min_width': 800,
+        'min_height': 600,
+        'default_width': 1000,
+        'default_height': 700,
+        'responsive_breakpoints': {
+            'small': 900,
+            'medium': 1200,
+            'large': 1600
+        }
     }
     
     @classmethod
@@ -127,19 +143,27 @@ class AppConfig:
         if settings_file.exists():
             try:
                 with open(settings_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                pass
+                    user_settings = json.load(f)
+                    # Garantir que o tema liquid_glass esteja habilitado por padrão
+                    if 'theme' not in user_settings:
+                        user_settings['theme'] = 'liquid_glass'
+                    # Garantir compatibilidade com versões anteriores
+                    user_settings.setdefault('responsive_layout', True)
+                    return user_settings
+            except Exception as e:
+                print(f"⚠️ Erro ao carregar configurações: {e}")
+                # Retornar configurações padrão em caso de erro
         
-        # Configurações padrão
+        # Configurações padrão com liquid_glass habilitado
         return {
             'recent_folders': [],
-            'window_size': {'width': 1000, 'height': 700},
+            'window_size': {'width': cls.UI_SETTINGS['default_width'], 'height': cls.UI_SETTINGS['default_height']},
             'window_position': {'x': 100, 'y': 100},
-            'theme': 'default',
+            'theme': 'liquid_glass',  # HABILITADO POR PADRÃO
             'language': 'pt-BR',
             'auto_save': True,
-            'check_updates': True
+            'check_updates': True,
+            'responsive_layout': True
         }
     
     @classmethod
@@ -148,11 +172,15 @@ class AppConfig:
         settings_file = cls.CONFIG_DIR / "user_settings.json"
         
         try:
+            # Garantir que o diretório existe
+            cls.CONFIG_DIR.mkdir(exist_ok=True)
+            
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, indent=2, ensure_ascii=False)
+            print("✅ Configurações salvas com sucesso!")
             return True
         except Exception as e:
-            print(f"Erro ao salvar configurações: {e}")
+            print(f"❌ Erro ao salvar configurações: {e}")
             return False
 
 # Instância global de configuração
