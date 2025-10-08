@@ -7,12 +7,12 @@ import tkinter.font as tkfont
 class LiquidGlassStyle:
     """Estilo Liquid Glass para a aplicação - Design inspirado no Windows 11"""
     
-    # Cores do tema Windows 11 Dark Mode com transparência
+    # Cores do tema Windows 11 Dark Mode com transparência reduzida
     BG_PRIMARY = "#202020"           # Fundo principal escuro
     BG_SECONDARY = "#2D2D2D"         # Fundo secundário
     BG_CARD = "#383838"              # Cartões e containers
     BG_HOVER = "#404040"             # Hover states
-    BG_GLASS = "rgba(56, 56, 56, 0.8)"  # Efeito glass
+    BG_GLASS = "#383838"             # Efeito glass (sem transparência)
     
     # Cores de destaque (Windows 11 palette)
     ACCENT_PRIMARY = "#0078D4"       # Azul Windows
@@ -32,7 +32,7 @@ class LiquidGlassStyle:
     SEPARATOR_COLOR = "#484848"
     
     # Efeitos
-    GLASS_ALPHA = 0.15
+    GLASS_ALPHA = 0.95               # Transparência reduzida (95% opaco)
     BORDER_RADIUS = 8                # Bordas mais suaves como Windows 11
     SHADOW_COLOR = "#00000030"
     
@@ -57,7 +57,7 @@ class LiquidGlassStyle:
             except:
                 pass
 
-        # Configurações gerais - CORRIGIDO: textos claros
+        # Configurações gerais - CORRIGIDO: textos claros e sem transparência
         style.configure(".", 
                        background=cls.BG_PRIMARY,
                        foreground=cls.TEXT_PRIMARY,  # Texto BRANCO
@@ -68,7 +68,7 @@ class LiquidGlassStyle:
                        troughcolor=cls.BG_SECONDARY,
                        focuscolor=cls.ACCENT_PRIMARY + "40")
         
-        # Frame com efeito glass
+        # Frame com efeito glass (sem transparência)
         style.configure("Glass.TFrame",
                        background=cls.BG_CARD,
                        relief="flat",
@@ -115,7 +115,7 @@ class LiquidGlassStyle:
                        foreground=cls.ACCENT_ERROR,
                        font=cls.FONT_ACCENT)
 
-        # Entry - CORRIGIDO: texto claro
+        # Entry - CORRIGIDO: texto claro e fundo sólido
         style.configure("Glass.TEntry",
                        fieldbackground=cls.BG_SECONDARY,
                        foreground=cls.TEXT_PRIMARY,  # BRANCO
@@ -135,7 +135,7 @@ class LiquidGlassStyle:
                  lightcolor=[("focus", cls.ACCENT_PRIMARY)],
                  darkcolor=[("focus", cls.ACCENT_PRIMARY)])
 
-        # Buttons - CORRIGIDO: textos claros
+        # Buttons - CORRIGIDO: textos claros e fundos sólidos
         style.configure("Accent.TButton",
                        background=cls.ACCENT_PRIMARY,
                        foreground=cls.TEXT_PRIMARY,  # BRANCO
@@ -452,14 +452,15 @@ class LiquidGlassStyle:
         """Aplica o estilo Liquid Glass a uma janela"""
         window.configure(bg=cls.BG_PRIMARY)
         
-        # Tenta configurar a transparência (efeito glass)
+        # Configura transparência reduzida (95% opaco)
         try:
+            window.wm_attributes('-alpha', cls.GLASS_ALPHA)
+            # Remove transparentcolor para evitar elementos totalmente transparentes
             if window.tk.call('tk', 'windowingsystem') == 'win32':
-                window.wm_attributes('-transparentcolor', cls.BG_PRIMARY)
-                window.wm_attributes('-alpha', 0.95)  # Leve transparência
-            elif window.tk.call('tk', 'windowingsystem') == 'aqua':
-                window.wm_attributes('-transparent', True)
+                # Usa um alpha mais alto para evitar transparência total
+                window.wm_attributes('-alpha', 0.98)
         except:
+            # Fallback se não suportar transparência
             pass
 
     @classmethod

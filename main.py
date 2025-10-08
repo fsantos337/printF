@@ -26,6 +26,11 @@ class PrintFApp:
         # Bindings para responsividade
         self._setup_bindings()
         
+        # Variáveis para controle de responsividade
+        self.current_padding = "30"
+        self.current_font_scale = 1.0
+        self.current_cols = 2
+        
     def _setup_main_window(self):
         """Configura a janela principal"""
         self.root.title("PrintF - Sistema Completo de Evidências")
@@ -146,34 +151,92 @@ class PrintFApp:
         
     def _on_window_resize(self, event):
         """Manipula redimensionamento da janela"""
-        if event.widget == self.root:
-            # Atualizar layout responsivo se necessário
-            if hasattr(self, 'main_frame') and self.settings.get('responsive_layout', True):
-                self._update_responsive_layout(event.width, event.height)
+        if event.widget == self.root and hasattr(self, 'main_frame'):
+            # Atualizar layout responsivo
+            self._update_responsive_layout(event.width, event.height)
 
     def _update_responsive_layout(self, width, height):
         """Atualiza layout baseado no tamanho da tela"""
         from config import APP_CONFIG
         breakpoints = APP_CONFIG.UI_SETTINGS['responsive_breakpoints']
         
-        # Ajustar padding e tamanhos baseado na largura
+        # Determinar configurações baseadas no tamanho
         if width < breakpoints['small']:
             # Layout mobile/tablet
-            padding = "20"
-            font_scale = 0.9
+            new_padding = "10"
+            new_font_scale = 0.85
+            new_cols = 1
+            title_font_size = 14
+            subtitle_font_size = 9
+            module_font_size = 10
+            wrap_length = 300
         elif width < breakpoints['medium']:
             # Layout pequeno desktop
-            padding = "30"
-            font_scale = 1.0
+            new_padding = "20"
+            new_font_scale = 0.95
+            new_cols = 2
+            title_font_size = 15
+            subtitle_font_size = 10
+            module_font_size = 11
+            wrap_length = 180
         else:
             # Layout grande desktop
-            padding = "40"
-            font_scale = 1.1
+            new_padding = "30"
+            new_font_scale = 1.0
+            new_cols = 2
+            title_font_size = 16
+            subtitle_font_size = 11
+            module_font_size = 12
+            wrap_length = 200
+        
+        # Aplicar mudanças se necessário
+        needs_update = False
+        
+        if (hasattr(self, 'current_padding') and self.current_padding != new_padding or
+            hasattr(self, 'current_font_scale') and self.current_font_scale != new_font_scale or
+            hasattr(self, 'current_cols') and self.current_cols != new_cols):
             
-        # Aplicar ajustes se necessário
-        if hasattr(self, 'current_padding') and self.current_padding != padding:
-            self.current_padding = padding
-            # Aqui você pode adicionar lógica para reempacotar widgets com novo padding
+            self.current_padding = new_padding
+            self.current_font_scale = new_font_scale
+            self.current_cols = new_cols
+            needs_update = True
+        
+        # Atualizar UI se necessário
+        if needs_update and hasattr(self, 'main_frame'):
+            self._refresh_ui_layout(title_font_size, subtitle_font_size, module_font_size, wrap_length)
+
+    def _refresh_ui_layout(self, title_font_size, subtitle_font_size, module_font_size, wrap_length):
+        """Atualiza dinamicamente o layout da UI"""
+        try:
+            # Atualizar padding do frame principal
+            self.main_frame.pack_configure(padx=self.current_padding, pady=self.current_padding)
+            
+            # Atualizar header
+            if hasattr(self, 'title_text'):
+                if self.using_liquid_glass:
+                    self.title_text.configure(font=("Arial", title_font_size, "bold"))
+                else:
+                    self.title_text.configure(font=("Arial", title_font_size, "bold"))
+            
+            if hasattr(self, 'subtitle'):
+                if self.using_liquid_glass:
+                    self.subtitle.configure(font=("Arial", subtitle_font_size))
+                else:
+                    self.subtitle.configure(font=("Arial", subtitle_font_size))
+            
+            # Atualizar grid de módulos
+            if hasattr(self, 'modules_frame') and hasattr(self, 'modules_config'):
+                self._create_responsive_grid(self.modules_frame, self.modules_config, wrap_length)
+                
+            # Atualizar footer
+            if hasattr(self, 'footer_text'):
+                if self.using_liquid_glass:
+                    pass  # Mantém estilo padrão para footer
+                else:
+                    self.footer_text.configure(font=("Arial", 8))
+            
+        except Exception as e:
+            print(f"⚠️ Erro ao atualizar layout: {e}")
 
     def _load_settings(self):
         """Carrega configurações"""
@@ -203,7 +266,7 @@ class PrintFApp:
             self.main_frame = self.style_manager.create_glass_frame(self.root)
         else:
             # Fallback
-            self.main_frame = ttk.Frame(self.root, padding="30")
+            self.main_frame = ttk.Frame(self.root, padding=self.current_padding)
             self.main_frame.configure(style='TFrame')
             
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
@@ -223,6 +286,10 @@ class PrintFApp:
         
         # Rodapé
         self._create_footer(self.main_frame)
+        
+        # Forçar atualização inicial do layout
+        self.root.update()
+        self._update_responsive_layout(self.root.winfo_width(), self.root.winfo_height())
 
     def _create_header(self, parent):
         """Cria cabeçalho da aplicação"""
@@ -244,23 +311,23 @@ class PrintFApp:
             icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), background='#f5f5f5')
         icon_label.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Textos - CORREÇÃO: Usar ttk.Label com estilos
+        # Textos
         if self.using_liquid_glass and self.style_manager:
-            title_text = self.style_manager.create_title_label(title_frame, "PRINTF UNIFICADO")
+            self.title_text = self.style_manager.create_title_label(title_frame, "PRINTF")
         else:
-            title_text = ttk.Label(title_frame, text="PRINTF", style='Title.TLabel')
-        title_text.pack(side=tk.LEFT)
+            self.title_text = ttk.Label(title_frame, text="PRINTF", style='Title.TLabel')
+        self.title_text.pack(side=tk.LEFT)
         
         if self.using_liquid_glass and self.style_manager:
-            subtitle = ttk.Label(header_frame, 
+            self.subtitle = ttk.Label(header_frame, 
                                text="Sistema Completo de Captura e Documentação de Evidências",
                                style="Subtitle.TLabel")
         else:
-            subtitle = ttk.Label(header_frame, 
+            self.subtitle = ttk.Label(header_frame, 
                                text="Sistema Completo de Captura e Documentação de Evidências",
                                style="Subtitle.TLabel" if hasattr(self, 'style') else None,
                                font=("Arial", 10))
-        subtitle.pack(pady=(5, 0))
+        self.subtitle.pack(pady=(5, 0))
         
         # Versão
         from config import APP_CONFIG
@@ -278,14 +345,14 @@ class PrintFApp:
     def _create_modules_grid(self, parent):
         """Cria grid de módulos responsivo"""
         if self.using_liquid_glass and self.style_manager:
-            modules_frame = self.style_manager.create_glass_frame(parent)
+            self.modules_frame = self.style_manager.create_glass_frame(parent)
         else:
-            modules_frame = ttk.Frame(parent)
-            modules_frame.configure(style='TFrame')
-        modules_frame.pack(fill=tk.BOTH, expand=True)
+            self.modules_frame = ttk.Frame(parent)
+            self.modules_frame.configure(style='TFrame')
+        self.modules_frame.pack(fill=tk.BOTH, expand=True)
         
         # Configuração dos módulos
-        modules_config = [
+        self.modules_config = [
             {
                 "title": "📷 CAPTURAR EVIDÊNCIAS",
                 "key": "capture",
@@ -316,24 +383,12 @@ class PrintFApp:
             }
         ]
         
-        # Criar grid responsivo
-        self._create_responsive_grid(modules_frame, modules_config)
+        # Criar grid responsivo inicial
+        self._create_responsive_grid(self.modules_frame, self.modules_config, 200)
 
-    def _create_responsive_grid(self, parent, modules_config):
+    def _create_responsive_grid(self, parent, modules_config, wrap_length=200):
         """Cria grid responsivo baseado no tamanho da tela"""
         width = self.root.winfo_width()
-        from config import APP_CONFIG
-        breakpoints = APP_CONFIG.UI_SETTINGS['responsive_breakpoints']
-        
-        if width < breakpoints['small']:
-            # 1 coluna para telas pequenas
-            cols = 1
-        elif width < breakpoints['medium']:
-            # 2 colunas para telas médias
-            cols = 2
-        else:
-            # 2 colunas para telas grandes (mantém consistência)
-            cols = 2
         
         # Limpar grid anterior se existir
         for widget in parent.winfo_children():
@@ -341,30 +396,35 @@ class PrintFApp:
         
         # Criar novo grid
         for i, module in enumerate(modules_config):
-            row = i // cols
-            col = i % cols
-            
-            if cols == 1:
-                # Layout single column
-                self._create_module_card(parent, module).pack(fill=tk.X, padx=10, pady=5)
+            if self.current_cols == 1:
+                # Layout single column - usa pack
+                card = self._create_module_card(parent, module, wrap_length)
+                card.pack(fill=tk.X, padx=5, pady=5)
             else:
-                # Layout grid
-                card = self._create_module_card(parent, module)
+                # Layout grid - usa grid
+                row = i // self.current_cols
+                col = i % self.current_cols
+                
+                card = self._create_module_card(parent, module, wrap_length)
                 card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
         
-        # Configurar weights para expansão
-        if cols > 1:
-            for i in range((len(modules_config) + cols - 1) // cols):
+        # Configurar weights para expansão responsiva
+        if self.current_cols > 1:
+            row_count = (len(modules_config) + self.current_cols - 1) // self.current_cols
+            for i in range(row_count):
                 parent.grid_rowconfigure(i, weight=1)
-            for j in range(cols):
+            for j in range(self.current_cols):
                 parent.grid_columnconfigure(j, weight=1)
 
-    def _create_module_card(self, parent, module_config):
-        """Cria card de módulo individual"""
+    def _create_module_card(self, parent, module_config, wrap_length):
+        """Cria card de módulo individual com wrap length dinâmico"""
         if self.using_liquid_glass and self.style_manager:
             card_frame = self.style_manager.create_card(parent)
         else:
             card_frame = tk.Frame(parent, relief="solid", borderwidth=1, bg='white')
+        
+        # Configurar card para expandir
+        card_frame.pack_propagate(False) if self.current_cols > 1 else card_frame.pack_propagate(True)
         
         # Botão principal
         if self.using_liquid_glass and self.style_manager:
@@ -393,7 +453,7 @@ class PrintFApp:
             btn.bind("<Leave>", lambda e, b=btn, c=module_config["color"]: 
                     b.config(bg=c))
         
-        # Hotkey - CORREÇÃO: Usar ttk.Label quando usando Liquid Glass
+        # Hotkey
         hotkey_frame = tk.Frame(card_frame, 
                                bg=self.style_manager.BG_CARD if self.using_liquid_glass else 'white')
         hotkey_frame.pack(fill=tk.X, padx=8)
@@ -410,13 +470,13 @@ class PrintFApp:
                                     bg='white')
         hotkey_label.pack(side=tk.RIGHT)
         
-        # Descrição - CORREÇÃO: Usar ttk.Label quando usando Liquid Glass
+        # Descrição com wrap length dinâmico
         if self.using_liquid_glass and self.style_manager:
             desc_label = ttk.Label(card_frame, 
                                  text=module_config["description"],
                                  style="Glass.TLabel",
                                  justify="left",
-                                 wraplength=200)
+                                 wraplength=wrap_length)
         else:
             desc_label = tk.Label(card_frame, 
                                  text=module_config["description"],
@@ -424,7 +484,7 @@ class PrintFApp:
                                  bg="white",
                                  fg="#2c3e50",
                                  justify="left",
-                                 wraplength=200)
+                                 wraplength=wrap_length)
         desc_label.pack(fill=tk.X, padx=8, pady=(0, 8))
 
         return card_frame
@@ -443,16 +503,16 @@ class PrintFApp:
         sys_info.pack(side=tk.LEFT)
         
         if self.using_liquid_glass and self.style_manager:
-            footer_text = ttk.Label(sys_info, 
+            self.footer_text = ttk.Label(sys_info, 
                                   text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                                   style="Subtitle.TLabel")
         else:
-            footer_text = tk.Label(sys_info, 
+            self.footer_text = tk.Label(sys_info, 
                                   text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                                   font=("Arial", 8),
                                   foreground="gray",
                                   bg='#f5f5f5')
-        footer_text.pack(anchor="w")
+        self.footer_text.pack(anchor="w")
         
         # Ações globais
         actions = tk.Frame(footer_frame, 
