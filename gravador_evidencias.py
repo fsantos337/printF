@@ -1983,23 +1983,67 @@ if __name__ == "__main__":
     tk.Button(root, text="❌ Fechar Aplicativo (F12)", command=on_closing, width=30).pack(pady=8)
 
 # ------------------ Atalhos globais ------------------
-def on_press(key):
+def create_global_hotkeys():
+    """Cria atalhos globais que funcionam mesmo com browser em foco"""
     try:
-        if key == keyboard.Key.f6:
+        from pynput import keyboard as pynput_keyboard
+        
+        def on_activate_f6():
+            print("F6 pressionado - Pausando")
             root.after(0, pausar)
-        elif key == keyboard.Key.f7:
+            
+        def on_activate_f7():
+            print("F7 pressionado - Retomando") 
             root.after(0, retomar)
-        elif key == keyboard.Key.f8:
+            
+        def on_activate_f8():
+            print("F8 pressionado - Iniciando")
             root.after(0, iniciar)
-        elif key == keyboard.Key.f9:
+            
+        def on_activate_f9():
+            print("F9 pressionado - Finalizando")
             root.after(0, finalizar)
-        elif key == keyboard.Key.f12:
+            
+        def on_activate_f12():
+            print("F12 pressionado - Fechando")
             root.after(0, root.quit)
-    except Exception:
-        pass
 
-listener = keyboard.Listener(on_press=on_press)
-listener.start()
+        # 🔥 CORREÇÃO: Criar hotkeys globais com pynput
+        with pynput_keyboard.GlobalHotKeys({
+                '<f6>': on_activate_f6,
+                '<f7>': on_activate_f7, 
+                '<f8>': on_activate_f8,
+                '<f9>': on_activate_f9,
+                '<f12>': on_activate_f12}) as h:
+            
+            print("✅ Atalhos globais configurados - F6, F7, F8, F9, F12")
+            h.join()
+            
+    except Exception as e:
+        print(f"❌ Erro nos atalhos globais: {e}")
+        # Fallback para o método antigo
+        def on_press(key):
+            try:
+                if key == pynput_keyboard.Key.f6:
+                    root.after(0, pausar)
+                elif key == pynput_keyboard.Key.f7:
+                    root.after(0, retomar)
+                elif key == pynput_keyboard.Key.f8:
+                    root.after(0, iniciar)
+                elif key == pynput_keyboard.Key.f9:
+                    root.after(0, finalizar)
+                elif key == pynput_keyboard.Key.f12:
+                    root.after(0, root.quit)
+            except Exception as e:
+                print(f"Erro no atalho: {e}")
+
+        listener = pynput_keyboard.Listener(on_press=on_press)
+        listener.start()
+
+# Iniciar os hotkeys globais em uma thread separada
+import threading
+hotkey_thread = threading.Thread(target=create_global_hotkeys, daemon=True)
+hotkey_thread.start()
 
 # ------------------ Inicia interface ------------------
 root.mainloop()
