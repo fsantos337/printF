@@ -12,8 +12,9 @@ from datetime import datetime
 
 import pandas as pd
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import RGBColor
 
 
 class ConfigManager:
@@ -25,7 +26,7 @@ class ConfigManager:
         {"label": "Campo3:", "key": "campo3"},
         {"label": "Campo4:", "key": "campo4"},
         {"label": "Campo5:", "key": "campo5"},
-        {"label": "Campo6", "key": "campo6"}
+        {"label": "Campo6:", "key": "campo6"}
     ]
 
     def __init__(self, config_file: str = 'config_campos.json'):
@@ -204,18 +205,36 @@ class DefaultDocumentGenerator:
         """Cria um documento padrão com estrutura organizada"""
         doc = Document()
         
-        # Título do documento
+        # Configurar estilos de fonte padrão
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Arial'
+        font.size = Pt(12)
+        font.color.rgb = RGBColor(0, 0, 0) # Preto
+        
+        # Título do documento - Arial 20, negrito
         title = doc.add_heading('Evidências de Teste - Documentação', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in title.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(20)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Adicionar data e hora
         current_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         date_para = doc.add_paragraph(f"Gerado em: {current_time}")
         date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        date_para.style = doc.styles['Normal']
         doc.add_paragraph()
         
         # Seção de informações do teste
-        doc.add_heading('Informações do Teste', level=1)
+        info_heading = doc.add_heading('Informações do Teste', level=1)
+        for run in info_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = False
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Tabela para dados organizados
         table = doc.add_table(rows=len(field_config) + 1, cols=2)
@@ -229,8 +248,12 @@ class DefaultDocumentGenerator:
         # Formatar cabeçalho
         for cell in header_cells:
             for paragraph in cell.paragraphs:
+                paragraph.style = doc.styles['Normal']
                 for run in paragraph.runs:
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(12)
                     run.bold = True
+                    run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Preencher dados da configuração
         for i, campo_info in enumerate(field_config, 1):
@@ -240,25 +263,64 @@ class DefaultDocumentGenerator:
             row_cells = table.rows[i].cells
             row_cells[0].text = label
             row_cells[1].text = data.get(key, 'Não informado')
+            
+            # Aplicar estilo Arial 12 sem negrito
+            for cell in row_cells:
+                for paragraph in cell.paragraphs:
+                    paragraph.style = doc.styles['Normal']
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = False
+                        run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         doc.add_paragraph()
         
         # Seção do caso de teste
-        doc.add_heading('Caso de Teste', level=1)
+        caso_heading = doc.add_heading('Caso de Teste', level=1)
+        for run in caso_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = False
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
         caso_teste_para = doc.add_paragraph()
-        caso_teste_para.add_run('Nome do Caso de Teste: ').bold = True
-        caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
+        caso_run = caso_teste_para.add_run('Nome do Caso de Teste: ')
+        caso_run.bold = True
+        caso_run.font.name = 'Arial'
+        caso_run.font.size = Pt(12)
+        caso_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+        
+        nome_run = caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
+        nome_run.font.name = 'Arial'
+        nome_run.font.size = Pt(12)
+        nome_run.bold = False
+        nome_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Seção de descrição
-        doc.add_heading('Descrição do Teste', level=2)
-        doc.add_paragraph(
+        desc_heading = doc.add_heading('Descrição do Teste', level=2)
+        for run in desc_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = False
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+        desc_para = doc.add_paragraph(
             "Esta seção deve conter a descrição detalhada do caso de teste executado, "
             "incluindo pré-condições, passos de execução e resultados esperados."
         )
+        desc_para.style = doc.styles['Normal']
         
         # Seção de evidências
-        doc.add_heading('Evidências Coletadas', level=2)
-        doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
+        evid_heading = doc.add_heading('Evidências Coletadas', level=2)
+        for run in evid_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = False
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+        evid_para = doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
+        evid_para.style = doc.styles['Normal']
         
         # Tabela para evidências
         evidencias_table = doc.add_table(rows=5, cols=3)
@@ -270,8 +332,12 @@ class DefaultDocumentGenerator:
         for col, header in enumerate(headers):
             evidencias_header[col].text = header
             for paragraph in evidencias_header[col].paragraphs:
+                paragraph.style = doc.styles['Normal']
                 for run in paragraph.runs:
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(12)
                     run.bold = True
+                    run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Linhas para preenchimento
         etapas = [
@@ -287,25 +353,60 @@ class DefaultDocumentGenerator:
             row_cells[0].text = etapa
             row_cells[1].text = "[Descreva a evidência coletada]"
             row_cells[2].text = "[Resultado obtido - OK/Erro]"
+            
+            # Aplicar estilo Arial 12 sem negrito
+            for cell in row_cells:
+                for paragraph in cell.paragraphs:
+                    paragraph.style = doc.styles['Normal']
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = False
+                        run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         doc.add_paragraph()
         
         # Seção de observações
-        doc.add_heading('Observações e Comentários', level=2)
-        doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
+        obs_heading = doc.add_heading('Observações e Comentários', level=2)
+        for run in obs_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = False
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+        obs_para = doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
+        obs_para.style = doc.styles['Normal']
         
         # Área para observações
-        obs_para = doc.add_paragraph()
-        obs_para.add_run("Observações Gerais:\n").bold = True
-        obs_para.add_run("• [Insira observações sobre problemas encontrados]\n")
-        obs_para.add_run("• [Comentários sobre o comportamento do sistema]\n")
-        obs_para.add_run("• [Sugestões de melhorias]\n")
-        obs_para.add_run("• [Outras informações relevantes]")
+        obs_list_para = doc.add_paragraph()
+        obs_title_run = obs_list_para.add_run("Observações Gerais:\n")
+        obs_title_run.bold = True
+        obs_title_run.font.name = 'Arial'
+        obs_title_run.font.size = Pt(12)
+        obs_title_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+        
+        obs_items = [
+            "• [Insira observações sobre problemas encontrados]\n",
+            "• [Comentários sobre o comportamento do sistema]\n",
+            "• [Sugestões de melhorias]\n",
+            "• [Outras informações relevantes]"
+        ]
+        
+        for item in obs_items:
+            item_run = obs_list_para.add_run(item)
+            item_run.font.name = 'Arial'
+            item_run.font.size = Pt(12)
+            item_run.bold = False
+            item_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Rodapé informativo
         doc.add_paragraph()
         footer = doc.add_paragraph()
-        footer.add_run("Documento gerado automaticamente pelo PrintF - Gerador de Templates").italic = True
+        footer_run = footer.add_run("Documento gerado automaticamente pelo PrintF - Gerador de Templates")
+        footer_run.italic = True
+        footer_run.font.name = 'Arial'
+        footer_run.font.size = Pt(12)
+        footer_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
         return doc
@@ -319,36 +420,98 @@ class TemplateGenerator:
         """Cria um template de exemplo com base na configuração"""
         try:
             doc = Document()
-            doc.add_heading('Template de Evidências de Teste', level=1)
+            
+            # Configurar estilo normal para Arial 12
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Arial'
+            font.size = Pt(12)
+            font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            # Título principal - Arial 20, negrito
+            main_title = doc.add_heading('Template Evidências de Teste', level=1)
+            for run in main_title.runs:
+                run.font.name = 'Arial'
+                run.font.size = Pt(20)
+                run.bold = True
+                run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             # Adicionar instruções
             info_para = doc.add_paragraph()
-            info_para.add_run("Instruções: ").bold = True
-            info_para.add_run("Este é um template de exemplo. Os campos abaixo serão preenchidos automaticamente.")
+            info_title_run = info_para.add_run("Instruções: ")
+            info_title_run.bold = True
+            info_title_run.font.name = 'Arial'
+            info_title_run.font.size = Pt(12)
+            info_title_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            info_text_run = info_para.add_run("Este é um template de exemplo. Os campos abaixo serão preenchidos automaticamente.")
+            info_text_run.font.name = 'Arial'
+            info_text_run.font.size = Pt(12)
+            info_text_run.bold = False
+            info_text_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             doc.add_paragraph()
             
             # Adicionar campos da configuração
             for campo_info in field_config:
-                doc.add_paragraph(f"{campo_info['label']} [VALOR]")
+                campo_para = doc.add_paragraph()
+                label_run = campo_para.add_run(f"{campo_info['label']} ")
+                label_run.font.name = 'Arial'
+                label_run.font.size = Pt(12)
+                label_run.bold = False
+                label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+                
+                value_run = campo_para.add_run("[VALOR]")
+                value_run.font.name = 'Arial'
+                value_run.font.size = Pt(12)
+                value_run.bold = False
+                value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             doc.add_paragraph()
             
-            # Seção para caso de teste
-            doc.add_heading('Detalhes do Caso de Teste', level=2)
-            doc.add_paragraph("Caso de Teste: [NOME_DO_CASO]")
+            # Seção para caso de teste - Arial 20, negrito
+            caso_title = doc.add_heading('Detalhes do Caso de Teste', level=2)
+            for run in caso_title.runs:
+                run.font.name = 'Arial'
+                run.font.size = Pt(20)
+                run.bold = True
+                run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            caso_para = doc.add_paragraph()
+            caso_label_run = caso_para.add_run("Caso de Teste: ")
+            caso_label_run.font.name = 'Arial'
+            caso_label_run.font.size = Pt(12)
+            caso_label_run.bold = False
+            caso_label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            caso_value_run = caso_para.add_run("[NOME_DO_CASO]")
+            caso_value_run.font.name = 'Arial'
+            caso_value_run.font.size = Pt(12)
+            caso_value_run.bold = False
+            caso_value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             # Tabela para evidências
-            table = doc.add_table(rows=4, cols=2)
+            table = doc.add_table(rows=3, cols=2)
             table.style = 'Table Grid'
-            table.cell(0, 0).text = 'Caminho da Funcionalidade:'
-            table.cell(0, 1).text = '[CAMINHO]'
-            table.cell(1, 0).text = 'Resultado Esperado:'
-            table.cell(1, 1).text = '[RESULTADO_ESPERADO]'
-            table.cell(2, 0).text = 'Resultado Obtido:'
-            table.cell(2, 1).text = '[RESULTADO_OBTIDO]'
-            table.cell(3, 0).text = 'Observações:'
-            table.cell(3, 1).text = '[OBSERVACOES]'
+            
+            # Configurar células da tabela
+            table.cell(0, 0).text = 'Resultado Esperado:'
+            table.cell(0, 1).text = '[RESULTADO_ESPERADO]'
+            table.cell(1, 0).text = 'Resultado Obtido:'
+            table.cell(1, 1).text = '[RESULTADO_OBTIDO]'
+            table.cell(2, 0).text = 'Observações:'
+            table.cell(2, 1).text = '[OBSERVACOES]'
+            
+            # Aplicar estilo Arial 12 sem negrito para toda a tabela
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        paragraph.style = doc.styles['Normal']
+                        for run in paragraph.runs:
+                            run.font.name = 'Arial'
+                            run.font.size = Pt(12)
+                            run.bold = False
+                            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             doc.save('template_evidencias.docx')
             return True
@@ -357,6 +520,7 @@ class TemplateGenerator:
             return False
 
 
+# O restante do código permanece igual...
 class GeradorTemplates:
     """Interface principal da aplicação"""
     
@@ -472,7 +636,6 @@ class GeradorTemplates:
         self.gerar_btn.pack(side=tk.LEFT, padx=5)
         
         ttk.Button(button_frame, text="🔄 Limpar", command=self.limpar_campos).pack(side=tk.LEFT, padx=5)
-        # REMOVIDO: Botão "Criar Template Exemplo"
         ttk.Button(button_frame, text="❌ Sair", command=self.root.quit).pack(side=tk.LEFT, padx=5)
 
     def _create_progress_section(self, parent) -> None:
