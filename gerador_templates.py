@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import platform
 import re
 import threading
 import time
@@ -15,6 +16,7 @@ from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import RGBColor
+from docx.oxml import parse_xml
 
 
 class ConfigManager:
@@ -26,7 +28,8 @@ class ConfigManager:
         {"label": "Campo3:", "key": "campo3"},
         {"label": "Campo4:", "key": "campo4"},
         {"label": "Campo5:", "key": "campo5"},
-        {"label": "Campo6:", "key": "campo6"}
+        {"label": "Campo6:", "key": "campo6"},
+        {"label": "Campo7:", "key": "campo7"}
     ]
 
     def __init__(self, config_file: str = 'config_campos.json'):
@@ -64,72 +67,52 @@ class CSVReader:
     ENCODINGS = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
 
     @staticmethod
-    def read_csv(file_path: str) -> Optional[List[str]]:
-        """Lê um arquivo CSV e retorna a lista de nomes"""
+    def read_csv(file_path: str) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[pd.DataFrame]]:
+        """Lê um arquivo CSV e retorna a lista de nomes, colunas e o DataFrame completo"""
         try:
-            return CSVReader._read_with_pandas(file_path) or CSVReader._read_manual(file_path)
+            return CSVReader._read_with_pandas(file_path)
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao ler o CSV: {e}")
-            return None
+            return None, None, None
 
     @staticmethod
-    def _read_with_pandas(file_path: str) -> Optional[List[str]]:
-        """Tenta ler o CSV usando pandas"""
+    def _read_with_pandas(file_path: str) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[pd.DataFrame]]:
+        """Tenta ler o CSV usando pandas e retorna nomes, colunas e DataFrame"""
         for encoding in CSVReader.ENCODINGS:
             try:
                 df = pd.read_csv(file_path, encoding=encoding, engine='python', 
                                on_bad_lines='skip')
                 if 'Nome' in df.columns:
                     nomes = df['Nome'].dropna().str.strip()
-                    return nomes[nomes != ''].tolist()
-            except Exception:
-                continue
-        return None
-
-    @staticmethod
-    def _read_manual(file_path: str) -> Optional[List[str]]:
-        """Leitura manual do CSV como fallback"""
-        for encoding in CSVReader.ENCODINGS:
-            try:
-                with open(file_path, 'r', encoding=encoding) as file:
-                    return CSVReader._parse_csv_lines(file.readlines())
-            except Exception:
-                continue
-        return None
-
-    @staticmethod
-    def _parse_csv_lines(lines: List[str]) -> Optional[List[str]]:
-        """Parseia as linhas do CSV manualmente"""
-        if not lines:
-            return None
-
-        header_line = next((line for line in lines if 'Nome' in line), None)
-        if not header_line:
-            return None
-
-        headers = header_line.strip().split(',')
-        if 'Nome' not in headers:
-            return None
-
-        nome_index = headers.index('Nome')
-        nomes = []
-
-        for line in lines[1:]:
-            try:
-                if '"' in line:
-                    reader = csv.reader([line])
-                    parts = next(reader)
+                    nomes_list = nomes[nomes != ''].tolist()
+                    colunas = [col for col in df.columns if col != 'Nome']
+                    return nomes_list, colunas, df
                 else:
-                    parts = line.strip().split(',')
-
-                if len(parts) > nome_index:
-                    nome = parts[nome_index].strip().strip('"')
-                    if nome:
-                        nomes.append(nome)
+                    # Se não encontrar coluna "Nome", usa a primeira coluna
+                    primeira_coluna = df.columns[0]
+                    nomes = df[primeira_coluna].dropna().str.strip()
+                    nomes_list = nomes[nomes != ''].tolist()
+                    colunas = [col for col in df.columns if col != primeira_coluna]
+                    return nomes_list, colunas, df
             except Exception:
                 continue
+        return None, None, None
 
-        return nomes if nomes else None
+    @staticmethod
+    def get_csv_columns(file_path: str) -> Optional[List[str]]:
+        """Obtém apenas as colunas do arquivo CSV"""
+        try:
+            for encoding in CSVReader.ENCODINGS:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding, engine='python', 
+                                   on_bad_lines='skip', nrows=1)
+                    return df.columns.tolist()
+                except Exception:
+                    continue
+            return None
+        except Exception as e:
+            print(f"Erro ao obter colunas do CSV: {e}")
+            return None
 
 
 class DocumentProcessor:
@@ -161,10 +144,20 @@ class DocumentProcessor:
         if ':' in texto_original:
             field_key = texto_original.split(':', 1)[0].strip()
             if field_key in field_mapping:
-                paragraph.text = f"{field_mapping[field_key]}: "
+                nova_label = field_mapping[field_key]
+                
+                # CORREÇÃO: Substitui apenas o texto antes dos dois pontos mantendo a formatação
+                for run in paragraph.runs:
+                    if field_key in run.text:
+                        # Substitui o campo antigo pelo novo mantendo a formatação
+                        run.text = run.text.replace(field_key, nova_label)
+                        # Garante que o campo fique em negrito
+                        run.bold = True
+                        break
 
     @staticmethod
-    def fill_template(doc: Document, data: Dict[str, str], field_mapping: Dict[str, str]) -> None:
+    def fill_template(doc: Document, data: Dict[str, str], field_mapping: Dict[str, str], 
+                     colunas_selecionadas: List[str] = None, dados_csv: Dict[str, str] = None) -> None:
         """Preenche o template com os dados fornecidos"""
         # Primeiro ajusta os campos do template de acordo com as labels do JSON
         DocumentProcessor.adjust_template_fields(doc, field_mapping)
@@ -186,22 +179,126 @@ class DocumentProcessor:
                 for cell in row.cells:
                     for paragraph in cell.paragraphs:
                         DocumentProcessor._fill_paragraph(paragraph, label_to_value)
+        
+        # Adiciona tabela com dados do CSV se houver colunas selecionadas
+        if colunas_selecionadas and dados_csv:
+            DocumentProcessor._adicionar_tabela_csv(doc, colunas_selecionadas, dados_csv)
 
     @staticmethod
     def _fill_paragraph(paragraph, label_to_value: Dict[str, str]) -> None:
-        """Preenche um parágrafo específico com os dados"""
+        """Preenche um parágrafo específico com os dados - campo em negrito, valor normal"""
         texto = paragraph.text.strip()
         if ':' in texto:
             field_name = texto.split(':', 1)[0].strip()
             if field_name in label_to_value:
-                paragraph.text = f"{field_name}: {label_to_value[field_name]}"
+                valor = label_to_value[field_name]
+                
+                # CORREÇÃO: Busca pela formatação original do campo no template
+                formato_original = None
+                if paragraph.runs:
+                    # Tenta encontrar um run que contenha o campo para pegar a formatação
+                    for run in paragraph.runs:
+                        if field_name in run.text:
+                            formato_original = {
+                                'font_name': run.font.name,
+                                'font_size': run.font.size,
+                                'color': run.font.color.rgb if hasattr(run.font, 'color') and run.font.color else None
+                            }
+                            break
+                
+                # Se não encontrou formatação, usa padrão do primeiro run
+                if not formato_original and paragraph.runs:
+                    primeiro_run = paragraph.runs[0]
+                    formato_original = {
+                        'font_name': primeiro_run.font.name,
+                        'font_size': primeiro_run.font.size,
+                        'color': primeiro_run.font.color.rgb if hasattr(primeiro_run.font, 'color') and primeiro_run.font.color else None
+                    }
+                
+                # Limpa todo o conteúdo do parágrafo
+                for run in paragraph.runs:
+                    run.text = ""
+                
+                # Adiciona o CAMPO em NEGRITO
+                campo_run = paragraph.add_run(f"{field_name}: ")
+                campo_run.bold = True
+                
+                # Adiciona o VALOR SEM NEGRITO
+                valor_run = paragraph.add_run(valor)
+                valor_run.bold = False
+                
+                # Aplica a formatação original se encontrada
+                if formato_original:
+                    for run in paragraph.runs:
+                        run.font.name = formato_original['font_name']
+                        run.font.size = formato_original['font_size']
+                        if formato_original['color']:
+                            run.font.color.rgb = formato_original['color']
+
+    @staticmethod
+    def _adicionar_tabela_csv(doc: Document, colunas_selecionadas: List[str], dados_csv: Dict[str, str]) -> None:
+        """Adiciona uma tabela com os dados do CSV ao documento"""
+        if not colunas_selecionadas or not dados_csv:
+            return
+        
+        # Adiciona um espaço antes da tabela
+        doc.add_paragraph()
+        
+        # Adiciona título da tabela - ARIAL 16 NEGRITO
+        titulo = doc.add_heading('Dados Adicionais do Caso de Teste', level=2)
+        for run in titulo.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(16)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0)
+        
+        # Cria tabela sem estilo para remover cores de fundo
+        tabela = doc.add_table(rows=len(colunas_selecionadas), cols=2)
+        
+        # Adicionar dados diretamente sem cabeçalho
+        for i, coluna in enumerate(colunas_selecionadas):
+            if coluna in dados_csv:
+                row_cells = tabela.rows[i].cells
+                
+                # Primeira coluna: nome do campo em Arial 16 NEGRITO
+                row_cells[0].text = coluna
+                for paragraph in row_cells[0].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = True
+                        run.font.color.rgb = RGBColor(0, 0, 0)
+                
+                # Segunda coluna: valor em Arial 16 SEM NEGRITO
+                row_cells[1].text = str(dados_csv[coluna])
+                for paragraph in row_cells[1].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = False
+                        run.font.color.rgb = RGBColor(0, 0, 0)
+                
+                # Adicionar bordas pretas às células
+                for cell in row_cells:
+                    tcPr = cell._element.get_or_add_tcPr()
+                    tcBorders = parse_xml(r'<w:tcBorders xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                                          r'<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'</w:tcBorders>')
+                    tcPr.append(tcBorders)
+        # Adiciona um espaço depois da tabela
+        doc.add_paragraph()
 
 
 class DefaultDocumentGenerator:
     """Gera documentos padrão quando nenhum template é fornecido"""
     
     @staticmethod
-    def create_default_document(data: Dict[str, str], field_config: List[Dict]) -> Document:
+    def create_default_document(data: Dict[str, str], field_config: List[Dict], 
+                               colunas_selecionadas: List[str] = None, 
+                               dados_csv: Dict[str, str] = None) -> Document:
         """Cria um documento padrão com estrutura organizada"""
         doc = Document()
         
@@ -217,23 +314,16 @@ class DefaultDocumentGenerator:
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in title.runs:
             run.font.name = 'Arial'
-            run.font.size = Pt(20)
+            run.font.size = Pt(16)
             run.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-        
-        # Adicionar data e hora
-        current_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        date_para = doc.add_paragraph(f"Gerado em: {current_time}")
-        date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        date_para.style = doc.styles['Normal']
-        doc.add_paragraph()
         
         # Seção de informações do teste
         info_heading = doc.add_heading('Informações do Teste', level=1)
         for run in info_heading.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
-            run.bold = False
+            run.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Tabela para dados organizados
@@ -271,19 +361,12 @@ class DefaultDocumentGenerator:
                     for run in paragraph.runs:
                         run.font.name = 'Arial'
                         run.font.size = Pt(12)
-                        run.bold = False
+                        run.bold = True
                         run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         doc.add_paragraph()
         
-        # Seção do caso de teste
-        caso_heading = doc.add_heading('Caso de Teste', level=1)
-        for run in caso_heading.runs:
-            run.font.name = 'Arial'
-            run.font.size = Pt(12)
-            run.bold = False
-            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-            
+        # Seção do caso de teste - ARIAL 16 NEGRITO para o label e 16 normal para o valor
         caso_teste_para = doc.add_paragraph()
         caso_run = caso_teste_para.add_run('Nome do Caso de Teste: ')
         caso_run.bold = True
@@ -294,15 +377,21 @@ class DefaultDocumentGenerator:
         nome_run = caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
         nome_run.font.name = 'Arial'
         nome_run.font.size = Pt(12)
-        nome_run.bold = False
+        nome_run.bold = False  # SEM NEGRITO para o valor
         nome_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+        
+        # Adicionar tabela com dados do CSV se houver colunas selecionadas
+        if colunas_selecionadas and dados_csv:
+            DocumentProcessor._adicionar_tabela_csv(doc, colunas_selecionadas, dados_csv)
+        
+        doc.add_paragraph()
         
         # Seção de descrição
         desc_heading = doc.add_heading('Descrição do Teste', level=2)
         for run in desc_heading.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
-            run.bold = False
+            run.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
         desc_para = doc.add_paragraph(
@@ -316,14 +405,14 @@ class DefaultDocumentGenerator:
         for run in evid_heading.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
-            run.bold = False
+            run.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
         evid_para = doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
         evid_para.style = doc.styles['Normal']
         
-        # Tabela para evidências
-        evidencias_table = doc.add_table(rows=5, cols=3)
+        # Tabela para evidências - CORRIGIDO: 6 linhas (cabeçalho + 5 etapas)
+        evidencias_table = doc.add_table(rows=6, cols=3)
         evidencias_table.style = 'Light Grid Accent 1'
         
         # Cabeçalho da tabela de evidências
@@ -339,7 +428,7 @@ class DefaultDocumentGenerator:
                     run.bold = True
                     run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
-        # Linhas para preenchimento
+        # Linhas para preenchimento - CORRIGIDO: usar índices de 1 a 5
         etapas = [
             'Pré-condições',
             'Configuração Inicial', 
@@ -349,20 +438,21 @@ class DefaultDocumentGenerator:
         ]
         
         for row, etapa in enumerate(etapas, 1):
-            row_cells = evidencias_table.rows[row].cells
-            row_cells[0].text = etapa
-            row_cells[1].text = "[Descreva a evidência coletada]"
-            row_cells[2].text = "[Resultado obtido - OK/Erro]"
-            
-            # Aplicar estilo Arial 12 sem negrito
-            for cell in row_cells:
-                for paragraph in cell.paragraphs:
-                    paragraph.style = doc.styles['Normal']
-                    for run in paragraph.runs:
-                        run.font.name = 'Arial'
-                        run.font.size = Pt(12)
-                        run.bold = False
-                        run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            if row < len(evidencias_table.rows):  # Verificação de segurança
+                row_cells = evidencias_table.rows[row].cells
+                row_cells[0].text = etapa
+                row_cells[1].text = "[Descreva a evidência coletada]"
+                row_cells[2].text = "[Resultado obtido - OK/Erro]"
+                
+                # Aplicar estilo Arial 12 sem negrito
+                for cell in row_cells:
+                    for paragraph in cell.paragraphs:
+                        paragraph.style = doc.styles['Normal']
+                        for run in paragraph.runs:
+                            run.font.name = 'Arial'
+                            run.font.size = Pt(12)
+                            run.bold = True
+                            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         doc.add_paragraph()
         
@@ -371,7 +461,7 @@ class DefaultDocumentGenerator:
         for run in obs_heading.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
-            run.bold = False
+            run.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
         obs_para = doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
@@ -396,18 +486,8 @@ class DefaultDocumentGenerator:
             item_run = obs_list_para.add_run(item)
             item_run.font.name = 'Arial'
             item_run.font.size = Pt(12)
-            item_run.bold = False
+            item_run.bold = True
             item_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-        
-        # Rodapé informativo
-        doc.add_paragraph()
-        footer = doc.add_paragraph()
-        footer_run = footer.add_run("Documento gerado automaticamente pelo PrintF - Gerador de Templates")
-        footer_run.italic = True
-        footer_run.font.name = 'Arial'
-        footer_run.font.size = Pt(12)
-        footer_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-        footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
         return doc
 
@@ -429,26 +509,12 @@ class TemplateGenerator:
             font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             # Título principal - Arial 20, negrito
-            main_title = doc.add_heading('Template Evidências de Teste', level=1)
+            main_title = doc.add_heading('Evidências de Teste', level=1)
             for run in main_title.runs:
                 run.font.name = 'Arial'
-                run.font.size = Pt(20)
+                run.font.size = Pt(16)
                 run.bold = True
                 run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-            
-            # Adicionar instruções
-            info_para = doc.add_paragraph()
-            info_title_run = info_para.add_run("Instruções: ")
-            info_title_run.bold = True
-            info_title_run.font.name = 'Arial'
-            info_title_run.font.size = Pt(12)
-            info_title_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-            
-            info_text_run = info_para.add_run("Este é um template de exemplo. Os campos abaixo serão preenchidos automaticamente.")
-            info_text_run.font.name = 'Arial'
-            info_text_run.font.size = Pt(12)
-            info_text_run.bold = False
-            info_text_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             doc.add_paragraph()
             
@@ -458,7 +524,7 @@ class TemplateGenerator:
                 label_run = campo_para.add_run(f"{campo_info['label']} ")
                 label_run.font.name = 'Arial'
                 label_run.font.size = Pt(12)
-                label_run.bold = False
+                label_run.bold = True
                 label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
                 
                 value_run = campo_para.add_run("[VALOR]")
@@ -469,19 +535,19 @@ class TemplateGenerator:
             
             doc.add_paragraph()
             
-            # Seção para caso de teste - Arial 20, negrito
-            caso_title = doc.add_heading('Detalhes do Caso de Teste', level=2)
-            for run in caso_title.runs:
-                run.font.name = 'Arial'
-                run.font.size = Pt(20)
-                run.bold = True
-                run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            # Seção para caso de teste - Arial 16, negrito
+            #caso_title = doc.add_heading('Detalhes do Caso de Teste', level=2)
+            #for run in caso_title.runs:
+                #run.font.name = 'Arial'
+                #run.font.size = Pt(16)
+                #run.bold = True
+                #run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
-            caso_para = doc.add_paragraph()
+            #caso_para = doc.add_paragraph()
             caso_label_run = caso_para.add_run("Caso de Teste: ")
             caso_label_run.font.name = 'Arial'
             caso_label_run.font.size = Pt(12)
-            caso_label_run.bold = False
+            caso_label_run.bold = True
             caso_label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
             
             caso_value_run = caso_para.add_run("[NOME_DO_CASO]")
@@ -489,6 +555,17 @@ class TemplateGenerator:
             caso_value_run.font.size = Pt(12)
             caso_value_run.bold = False
             caso_value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            # Adicionar seção para dados do CSV
+            dados_csv_heading = doc.add_heading('Detalhes do Caso de Teste', level=3)
+            for run in dados_csv_heading.runs:
+                run.font.name = 'Arial'
+                run.font.size = Pt(16)
+                run.bold = True
+                run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            dados_csv_para = doc.add_paragraph("Os dados adicionais do caso de teste serão inseridos aqui automaticamente.")
+            dados_csv_para.style = doc.styles['Normal']
             
             # Tabela para evidências
             table = doc.add_table(rows=3, cols=2)
@@ -520,7 +597,86 @@ class TemplateGenerator:
             return False
 
 
-# O restante do código permanece igual...
+class ColumnSelectionDialog:
+    """Diálogo para seleção de colunas do CSV"""
+    
+    def __init__(self, parent, colunas: List[str]):
+        self.parent = parent
+        self.colunas = colunas
+        self.selected_columns = []
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Selecionar Colunas do CSV")
+        self.dialog.geometry("500x400")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        main_frame = ttk.Frame(self.dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(main_frame, text="Selecione as colunas que deseja incluir no documento:", 
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Frame para a lista de colunas com scrollbar
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Listbox com múltipla seleção
+        self.listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, yscrollcommand=scrollbar.set)
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar.config(command=self.listbox.yview)
+        
+        # Preencher listbox com colunas
+        for coluna in self.colunas:
+            self.listbox.insert(tk.END, coluna)
+        
+        # Frame para botões
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(button_frame, text="Selecionar Todas", 
+                  command=self._select_all).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="Desmarcar Todas", 
+                  command=self._deselect_all).pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(button_frame, text="Confirmar", 
+                  command=self._confirm, style='Accent.TButton').pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Cancelar", 
+                  command=self._cancel).pack(side=tk.RIGHT)
+    
+    def _select_all(self):
+        """Seleciona todas as colunas"""
+        self.listbox.select_set(0, tk.END)
+    
+    def _deselect_all(self):
+        """Deseleciona todas as colunas"""
+        self.listbox.select_clear(0, tk.END)
+    
+    def _confirm(self):
+        """Confirma a seleção"""
+        selections = self.listbox.curselection()
+        self.selected_columns = [self.colunas[i] for i in selections]
+        self.dialog.destroy()
+    
+    def _cancel(self):
+        """Cancela a seleção"""
+        self.selected_columns = []
+        self.dialog.destroy()
+    
+    def show(self) -> List[str]:
+        """Mostra o diálogo e retorna as colunas selecionadas"""
+        self.parent.wait_window(self.dialog)
+        return self.selected_columns
+
+
 class GeradorTemplates:
     """Interface principal da aplicação"""
     
@@ -537,6 +693,11 @@ class GeradorTemplates:
         
         self.campos_config = self.config_manager.load_config()
         self.campos_entries: Dict[str, tk.Entry] = {}
+        
+        # Novos atributos para controle das colunas do CSV
+        self.colunas_selecionadas: List[str] = []
+        self.df_csv: Optional[pd.DataFrame] = None
+        self.csv_colunas: List[str] = []
         
         self._setup_ui()
         
@@ -687,8 +848,56 @@ class GeradorTemplates:
 
     # Métodos de seleção de arquivos
     def selecionar_csv(self) -> None:
-        self._select_file(self.csv_entry, "Selecionar arquivo CSV", 
-                         [("CSV Files", "*.csv"), ("Todos os arquivos", "*.*")])
+        arquivo = filedialog.askopenfilename(title="Selecionar arquivo CSV", 
+                                            filetypes=[("CSV Files", "*.csv"), ("Todos os arquivos", "*.*")])
+        if arquivo:
+            self.csv_entry.delete(0, tk.END)
+            self.csv_entry.insert(0, arquivo)
+            
+            # Verificar se o CSV tem colunas além do Nome
+            self._verificar_colunas_csv(arquivo)
+
+    def _verificar_colunas_csv(self, arquivo_csv: str) -> None:
+        """Verifica se o CSV tem colunas adicionais e pergunta ao usuário se deseja selecioná-las"""
+        try:
+            # Obter colunas do CSV
+            colunas = self.csv_reader.get_csv_columns(arquivo_csv)
+            
+            if colunas and len(colunas) > 1:  # Tem colunas além do Nome (ou primeira coluna)
+                # Remover a coluna de nome (assumindo que é a primeira)
+                coluna_nome = colunas[0]
+                colunas_adicionais = colunas[1:] if len(colunas) > 1 else []
+                
+                if colunas_adicionais:
+                    self.log(f"📊 CSV possui {len(colunas_adicionais)} colunas adicionais")
+                    
+                    # Perguntar ao usuário se deseja selecionar colunas
+                    resposta = messagebox.askyesno(
+                        "Colunas Adicionais Encontradas", 
+                        f"O arquivo CSV possui {len(colunas_adicionais)} colunas adicionais:\n\n" +
+                        "\n".join(f"• {coluna}" for coluna in colunas_adicionais) +
+                        "\n\nDeseja selecionar quais colunas incluir nos documentos?"
+                    )
+                    
+                    if resposta:
+                        # Mostrar diálogo de seleção de colunas
+                        dialog = ColumnSelectionDialog(self.root, colunas_adicionais)
+                        self.colunas_selecionadas = dialog.show()
+                        
+                        if self.colunas_selecionadas:
+                            self.log(f"✅ Colunas selecionadas: {', '.join(self.colunas_selecionadas)}")
+                        else:
+                            self.log("ℹ️ Nenhuma coluna adicional selecionada")
+                    
+                    # Carregar o DataFrame completo para uso posterior
+                    _, _, self.df_csv = self.csv_reader.read_csv(arquivo_csv)
+            else:
+                self.log("ℹ️ CSV não possui colunas adicionais para seleção")
+                self.colunas_selecionadas = []
+                
+        except Exception as e:
+            self.log(f"⚠️ Erro ao verificar colunas do CSV: {e}")
+            self.colunas_selecionadas = []
 
     def selecionar_template(self) -> None:
         self._select_file(self.template_entry, "Selecionar template DOCX", 
@@ -717,6 +926,10 @@ class GeradorTemplates:
         
         self._clear_log()
         self.progress['value'] = 0
+        
+        # Limpar seleção de colunas
+        self.colunas_selecionadas = []
+        self.df_csv = None
 
     def _clear_log(self) -> None:
         """Limpa o log de execução"""
@@ -754,6 +967,36 @@ class GeradorTemplates:
         
         return True
 
+    def _obter_dados_csv_por_nome(self, nome_caso_teste: str) -> Dict[str, str]:
+        """Obtém os dados do CSV para um caso de teste específico"""
+        if self.df_csv is None or not self.colunas_selecionadas:
+            return {}
+        
+        try:
+            # Encontrar a linha correspondente ao nome do caso de teste
+            # Assumindo que a primeira coluna contém os nomes
+            coluna_nome = self.df_csv.columns[0]
+            linha = self.df_csv[self.df_csv[coluna_nome] == nome_caso_teste]
+            
+            if not linha.empty:
+                dados = {}
+                for coluna in self.colunas_selecionadas:
+                    if coluna in linha.columns:
+                        valor = linha[coluna].iloc[0]
+                        # Converter para string e tratar valores NaN
+                        if pd.isna(valor):
+                            dados[coluna] = ""
+                        else:
+                            dados[coluna] = str(valor)
+                    else:
+                        dados[coluna] = ""
+                return dados
+        
+        except Exception as e:
+            self.log(f"⚠️ Erro ao obter dados do CSV para '{nome_caso_teste}': {e}")
+        
+        return {}
+
     def processar_documentos(self) -> None:
         """Processa os documentos em lote - versão robusta que nunca falha"""
         try:
@@ -785,12 +1028,17 @@ class GeradorTemplates:
                 output_folder = '.'
             
             self.log("📖 Lendo arquivo CSV...")
-            casos_teste = self.csv_reader.read_csv(csv_path)
+            casos_teste, colunas_csv, self.df_csv = self.csv_reader.read_csv(csv_path)
             
             if not casos_teste:
                 messagebox.showerror("Erro", "Não foi possível ler os casos de teste do CSV")
                 self.gerar_btn.config(state='normal')
                 return
+            
+            # Se não tivermos colunas selecionadas mas o CSV tiver colunas adicionais, 
+            # perguntar novamente (pode acontecer se o usuário cancelou anteriormente)
+            if not self.colunas_selecionadas and colunas_csv and len(colunas_csv) > 0:
+                self._verificar_colunas_csv(csv_path)
             
             # Determinar modo de operação
             use_default_template = True
@@ -836,16 +1084,18 @@ class GeradorTemplates:
         field_mapping = {campo['key']: campo['label'].rstrip(':').strip() 
                         for campo in self.campos_config}
         
-        campo_nome = next(iter(dados_fixos.keys()))
-        
         for i, caso_teste in enumerate(casos_teste, 1):
             try:
                 self.progress['value'] = i
                 self.log(f"🔄 Processando: {caso_teste}")
                 
+                # Obter dados do CSV para este caso de teste
+                dados_csv = self._obter_dados_csv_por_nome(caso_teste)
+                
                 if self._generate_single_document(caso_teste, dados_fixos, template_path, 
-                                                output_folder, field_mapping, campo_nome, 
-                                                arquivos_gerados, use_default_template):
+                                                output_folder, field_mapping, 
+                                                arquivos_gerados, use_default_template,
+                                                dados_csv):
                     sucessos += 1
                 else:
                     erros.append((caso_teste, "Erro na geração"))
@@ -862,34 +1112,32 @@ class GeradorTemplates:
 
     def _generate_single_document(self, caso_teste: str, dados_fixos: Dict[str, str], 
                                 template_path: str, output_folder: str, 
-                                field_mapping: Dict[str, str], campo_nome: str,
-                                arquivos_gerados: set, use_default_template: bool) -> bool:
-        """Gera um único documento - versão robusta"""
+                                field_mapping: Dict[str, str],
+                                arquivos_gerados: set, use_default_template: bool,
+                                dados_csv: Dict[str, str] = None) -> bool:
+        """Gera um único documento - CORRIGIDO: tratamento de erro melhorado"""
         try:
+            dados_completos = dados_fixos.copy()
+            dados_completos['Caso de Teste'] = caso_teste
+            
             # Usar template se fornecido e existir, caso contrário criar documento padrão
             if not use_default_template:
                 try:
                     doc = Document(template_path)
-                    dados_completos = dados_fixos.copy()
-                    dados_completos['Caso de Teste'] = caso_teste
-                    self.doc_processor.fill_template(doc, dados_completos, field_mapping)
+                    self.doc_processor.fill_template(doc, dados_completos, field_mapping,
+                                                   self.colunas_selecionadas, dados_csv)
                 except Exception as e:
                     self.log(f"⚠️ Erro ao usar template personalizado: {e}. Usando template padrão...")
                     doc = self.default_doc_generator.create_default_document(
-                        dados_fixos.copy(), self.campos_config)
-                    doc = self.default_doc_generator.create_default_document(
-                        {**dados_fixos, 'Caso de Teste': caso_teste}, self.campos_config)
+                        dados_completos, self.campos_config, self.colunas_selecionadas, dados_csv)
             else:
                 # Criar documento padrão com todos os dados
-                dados_completos = dados_fixos.copy()
-                dados_completos['Caso de Teste'] = caso_teste
                 doc = self.default_doc_generator.create_default_document(
-                    dados_completos, self.campos_config)
+                    dados_completos, self.campos_config, self.colunas_selecionadas, dados_csv)
             
-            # Gerar nome do arquivo
+            # Nome do arquivo usa apenas o nome do Caso de Teste
             nome_base = self.doc_processor.clean_filename(caso_teste)
-            nome_arquivo = self._generate_unique_filename(
-                f"Evidencia_{dados_fixos[campo_nome]}_{nome_base}.docx", arquivos_gerados)
+            nome_arquivo = self._generate_unique_filename(f"{nome_base}.docx", arquivos_gerados)
             
             caminho_completo = Path(output_folder) / nome_arquivo
             
@@ -901,7 +1149,7 @@ class GeradorTemplates:
             except Exception as e:
                 # Fallback: tentar salvar com nome diferente
                 try:
-                    nome_alternativo = f"Evidencia_{i}_{datetime.now().strftime('%H%M%S')}.docx"
+                    nome_alternativo = f"Evidencia_{datetime.now().strftime('%H%M%S')}.docx"
                     caminho_alternativo = Path(output_folder) / nome_alternativo
                     doc.save(caminho_alternativo)
                     self.log(f"✅ Salvo (nome alternativo): {nome_alternativo}")
@@ -928,6 +1176,23 @@ class GeradorTemplates:
         existing_files.add(filename)
         return filename
 
+    def _abrir_pasta(self, caminho_pasta: str) -> None:
+        """Abre a pasta no explorador de arquivos do sistema operacional"""
+        try:
+            caminho_absoluto = Path(caminho_pasta).absolute()
+            
+            if platform.system() == "Windows":
+                os.startfile(caminho_absoluto)
+            elif platform.system() == "Darwin":  # macOS
+                os.system(f'open "{caminho_absoluto}"')
+            else:  # Linux e outros
+                os.system(f'xdg-open "{caminho_absoluto}"')
+                
+            self.log(f"📁 Pasta aberta: {caminho_absoluto}")
+        except Exception as e:
+            self.log(f"⚠️ Não foi possível abrir a pasta automaticamente: {e}")
+            self.log(f"📁 Pasta manual: {caminho_absoluto}")
+
     def _show_final_results(self, sucessos: int, erros: int, total: int, 
                            output_folder: str, arquivos_gerados: set) -> None:
         """Exibe os resultados finais do processamento"""
@@ -939,6 +1204,9 @@ class GeradorTemplates:
         self.log(f"❌ Erros: {erros}")
         self.log(f"📁 Pasta: {Path(output_folder).absolute()}")
         
+        if self.colunas_selecionadas:
+            self.log(f"📋 Colunas incluídas: {', '.join(self.colunas_selecionadas)}")
+        
         if sucessos > 0:
             self.log(f"\n📋 Arquivos gerados:")
             for arquivo in sorted(arquivos_gerados)[:10]:  # Mostra apenas os 10 primeiros
@@ -946,14 +1214,20 @@ class GeradorTemplates:
             if len(arquivos_gerados) > 10:
                 self.log(f"• ... e mais {len(arquivos_gerados) - 10} arquivos")
         
-        if erros == 0:
+        # Abrir pasta automaticamente quando há sucessos
+        if sucessos > 0:
+            self.log("\n📁 Abrindo pasta de resultados...")
+            self._abrir_pasta(output_folder)
+            
             messagebox.showinfo("Sucesso", 
-                              f"✅ Todos os {sucessos} documentos foram gerados com sucesso!\n"
-                              f"📁 Pasta: {Path(output_folder).absolute()}")
+                              f"✅ {sucessos} documentos gerados com sucesso!\n" +
+                              (f"📋 Colunas incluídas: {', '.join(self.colunas_selecionadas)}\n" if self.colunas_selecionadas else "") +
+                              f"📁 Pasta aberta automaticamente: {Path(output_folder).absolute()}")
         else:
             messagebox.showwarning("Concluído com avisos", 
                                  f"Processo concluído com {erros} erro(s).\n"
-                                 f"✅ {sucessos} documentos gerados com sucesso.\n"
+                                 f"✅ {sucessos} documentos gerados com sucesso.\n" +
+                                 (f"📋 Colunas incluídas: {', '.join(self.colunas_selecionadas)}\n" if self.colunas_selecionadas else "") +
                                  f"📁 Pasta: {Path(output_folder).absolute()}")
 
     def iniciar_processamento(self) -> None:
