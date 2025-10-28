@@ -4,268 +4,312 @@
 ![Python](https://img.shields.io/badge/python-3.8%2B-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
-## 📋 Sumário
+## 📋 Índice
 
-- [Sobre](#sobre)
-- [Características](#características)
-- [Requisitos](#requisitos)
-- [Instalação](#instalação)
-- [Configuração](#configuração)
-- [Uso](#uso)
-- [Compilação](#compilação)
-- [Estrutura do Projeto](#estrutura-do-projeto)
-- [Atalhos de Teclado](#atalhos-de-teclado)
-- [Solução de Problemas](#solução-de-problemas)
-- [Contribuindo](#contribuindo)
-- [Changelog](#changelog)
-- [Licença](#licença)
+- [Sobre o Projeto](#-sobre-o-projeto)
+- [Características Principais](#-características-principais)
+- [Instalação](#-instalação)
+- [Guia de Uso](#-guia-de-uso)
+- [Módulos](#-módulos)
+- [Compilação](#-compilação)
+- [Estrutura do Projeto](#-estrutura-do-projeto)
+- [Atalhos de Teclado](#%EF%B8%8F-atalhos-de-teclado)
+- [Solução de Problemas](#-solução-de-problemas)
+- [Licença](#-licença)
 
-## 🎯 Sobre
+## 🎯 Sobre o Projeto
 
-PrintF é um sistema profissional para captura e documentação de evidências de testes de software. Desenvolvido para simplificar o processo de documentação, permite capturar screenshots com apenas um clique, adicionar anotações e gerar relatórios automatizados em formato DOCX.
+O **PrintF** é uma solução profissional e integrada para captura, organização e documentação de evidências em processos de teste de software. A versão 1.0 representa uma evolução significativa, unificando todos os módulos em uma única aplicação com interface moderna e responsiva.
 
-### Por que PrintF v2.0?
+### 🌟 Novidades da Versão 1.0
 
-A versão 2.0 representa uma reformulação completa do sistema:
-- **Aplicativo unificado** - Todas as funcionalidades em um único executável
-- **Arquitetura modular** - Código organizado e manutenível
-- **Performance otimizada** - Captura mais rápida e eficiente
-- **Interface moderna** - Design intuitivo e responsivo
-- **Melhor tratamento de erros** - Sistema mais robusto e confiável
+- ✅ **Aplicação Unificada** - Todos os módulos integrados em um único executável
+- 🎨 **Interface Moderna** - Tema visual "Liquid Glass" com efeitos translúcidos
+- 📱 **Design Responsivo** - Adapta-se automaticamente ao tamanho da tela
+- 🏗️ **Arquitetura Modular** - Código organizado, escalável e de fácil manutenção
+- ⚡ **Performance Otimizada** - Sistema leve e eficiente
+- 🔧 **Configuração Flexível** - Sistema de configurações persistentes
 
-## ✨ Características
+## ✨ Características Principais
 
-### Principais Funcionalidades
+### 🎨 Interface do Usuário
 
-- 📷 **Captura Inteligente**: Suporte multi-monitor com detecção automática
-- 🎨 **Editor Integrado**: Adicione anotações, setas e destaques nas evidências
-- 📝 **Geração Automática**: Crie documentos DOCX formatados automaticamente
-- 🕒 **Timestamp Automático**: Data/hora adicionada automaticamente nas capturas
-- 🎯 **Marcador de Clique**: Destaque visual do ponto clicado
-- 💾 **Metadados Inteligentes**: Rastreamento completo de todas as evidências
-- 🔒 **Instância Única**: Previne execuções múltiplas acidentais
+- **Tema Liquid Glass**: Visual moderno com efeitos translúcidos e animações suaves
+- **Layout Responsivo**: Adapta-se automaticamente a diferentes resoluções (mobile, tablet, desktop)
+- **Navegação Intuitiva**: Cards interativos com feedback visual
+- **Sistema de Temas**: Suporte para múltiplos temas visuais
+- **Atalhos Globais**: Acesso rápido a todas as funcionalidades
 
-### Modos de Captura
+### 📷 Sistema de Captura
 
-1. **Ocultar Barra de Tarefas**: Captura apenas a área de trabalho, ideal para documentação limpa
-2. **Manter Barra de Tarefas**: Captura tela completa, preservando o contexto do sistema
+- **Multi-Monitor**: Suporte completo para configurações com múltiplos monitores
+- **Timestamp Automático**: Todas as capturas incluem data/hora
+- **Marcador de Clique**: Destaque visual do ponto de interação
+- **Metadados Completos**: Informações técnicas automáticas (resolução, sistema, etc)
+- **Modos de Captura**: "Ocultar" ou "Manter" barra de tarefas
+- **Controles Flexíveis**: Pausar, retomar e finalizar gravações
 
-## 📦 Requisitos
+### 📄 Geração de Documentos
 
-### Sistema Operacional
-- Windows 10/11 (64-bit)
-- Linux (Ubuntu 20.04+)
-- macOS 10.15+
+- **Templates DOCX Personalizáveis**: Crie seus próprios modelos
+- **Geração em Lote**: Processe múltiplos documentos simultaneamente
+- **Campos Dinâmicos**: Preenchimento automático de variáveis
+- **Backup de Metadados**: Preservação de informações importantes
+- **Editor Integrado**: Adicione comentários e observações
+- **Navegação Avançada**: Percorra evidências com facilidade
 
-### Python e Dependências
+### 🗑️ Gestão de Arquivos
 
-```bash
-Python 3.8 ou superior
-```
-
-#### Dependências Principais:
-```txt
-# requirements.txt
-tkinter              # Interface gráfica (geralmente incluído no Python)
-Pillow>=9.0.0       # Manipulação de imagens
-python-docx>=0.8.11 # Geração de documentos
-pynput>=1.7.0       # Captura de eventos de mouse/teclado
-pyautogui>=0.9.53   # Automação e captura de tela
-psutil>=5.9.0       # Gerenciamento de processos
-
-# Dependências Opcionais (melhor performance)
-mss>=7.0.0          # Captura de tela otimizada
-pywin32>=304        # APIs Windows (apenas Windows)
-screeninfo>=0.8     # Informações de múltiplos monitores
-```
+- **Análise de Disco**: Visualize o uso de espaço detalhadamente
+- **Filtros Inteligentes**: Organize por tipo, tamanho e data
+- **Exclusão Segura**: Confirmação antes de remover arquivos
+- **Backup Automático**: Proteção contra perda de dados
 
 ## 🚀 Instalação
 
-### Método 1: Instalação Rápida (Executável)
+### Opção 1: Executável Pronto (Recomendado)
 
-1. Baixe o executável mais recente em [Releases](https://github.com/seu-usuario/printf/releases)
-2. Execute `PrintF.exe`
-3. Pronto! Não requer instalação
+1. Baixe o arquivo `PrintF.exe` da [página de releases](https://github.com/usuario/printf/releases)
+2. Execute o arquivo (não requer instalação ou permissões especiais)
+3. Pronto! Todos os módulos estão incluídos e prontos para uso
 
-### Método 2: Instalação do Código-Fonte
+### Opção 2: Executar via Código Fonte
+
+**Pré-requisitos:**
+- Python 3.8 ou superior
+- pip (gerenciador de pacotes Python)
+
+**Passo a passo:**
 
 ```bash
-# 1. Clone o repositório
-git clone https://github.com/seu-usuario/printf.git
+# 1. Clone o repositório ou baixe os arquivos
+git clone https://github.com/usuario/printf.git
 cd printf
 
-# 2. Crie um ambiente virtual
-python -m venv venv
-
-# 3. Ative o ambiente virtual
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-
-# 4. Instale as dependências
+# 2. Instale as dependências
 pip install -r requirements.txt
 
-# 5. Execute o aplicativo
-python printF_v2.py
+# Ou instale manualmente:
+pip install pillow python-docx pyautogui pynput psutil screeninfo
+
+# 3. Execute a aplicação
+python main.py
 ```
 
-### Método 3: Instalação com Script
+### Dependências Necessárias
 
-```bash
-# Windows
-install.bat
-
-# Linux/macOS
-chmod +x install.sh
-./install.sh
+```
+pillow>=8.0.0          # Processamento de imagens
+python-docx>=0.8.11    # Geração de documentos DOCX
+pyautogui>=0.9.53      # Automação de interface
+pynput>=1.7.6          # Captura de eventos de teclado/mouse
+psutil>=5.8.0          # Informações do sistema
+screeninfo>=0.8        # Detecção de monitores
 ```
 
-## ⚙️ Configuração
+## 📖 Guia de Uso
 
-### Primeira Execução
+### 🏠 Tela Principal
 
-Na primeira execução, o PrintF criará automaticamente:
-- Diretório de configuração: `~/.printf/`
-- Arquivo de configuração: `~/.printf/config.json`
-- Diretório padrão de saída: `~/Documents/PrintF/`
+Ao iniciar o PrintF, você encontrará quatro módulos principais organizados em cards interativos:
 
-### Arquivo de Configuração
+1. **📷 Capturar Evidências (F8)** - Sistema de captura de screenshots
+2. **📄 Gerar Templates (F9)** - Criação de templates de documentos
+3. **📋 Gerar Documentos (F10)** - Geração de documentação completa
+4. **🗑️ Limpar Arquivos (F11)** - Gestão e limpeza de arquivos
 
-```json
-{
-  "version": "2.0.0",
-  "output_dir": "~/Documents/PrintF",
-  "template_dir": "~/Documents/PrintF/Templates",
-  "capture_mode": "ocultar",
-  "keep_evidence_files": true,
-  "timestamp_position": [0.75, 0.90],
-  "timestamp_color": "#FFFFFF",
-  "timestamp_background": "#000000B2",
-  "timestamp_size": 24
-}
+### 🔄 Fluxo de Trabalho Básico
+
+```
+1. Iniciar PrintF
+   ↓
+2. Selecionar módulo (clique ou atalho F8-F11)
+   ↓
+3. Executar ações do módulo
+   ↓
+4. Resultados salvos automaticamente em Output/
 ```
 
-### Personalização
+### ⚙️ Configuração Automática
 
-#### Alterar Diretório de Saída
-1. Menu `Arquivo` → `Configurações`
-2. Altere o campo "Diretório de Saída"
-3. Clique em `Salvar`
+Na primeira execução, o sistema cria automaticamente:
 
-#### Configurar Modo de Captura
-1. Na tela inicial, clique em `Iniciar Gravação`
-2. Selecione o modo desejado:
-   - **Ocultar barra**: Para documentação limpa
-   - **Manter barra**: Para contexto completo
+```
+PrintF/
+├── 📁 Output/             # Evidências capturadas
+├── 📁 Templates/          # Templates de documentos
+├── 📁 Config/             # Configurações do usuário
+├── 📁 Logs/              # Logs de execução
+└── 📄 user_settings.json  # Preferências salvas
+```
 
-## 📖 Uso
+## 🏗️ Módulos
 
-### Workflow Básico
+### 📷 Capturar Evidências (F8)
 
-1. **Iniciar o PrintF**
-   ```bash
-   python printF_v2.py
-   # ou
-   PrintF.exe
-   ```
+**Objetivo:** Captura sistemática e organizada de screenshots durante testes.
 
-2. **Configurar Sessão**
-   - Clique em `Iniciar Gravação (F8)`
-   - Selecione o template (opcional)
-   - Escolha o diretório de saída
-   - Configure o modo de captura
+**Recursos:**
+- Captura com um clique do mouse
+- Detecção automática de múltiplos monitores
+- Timestamp e metadados em cada captura
+- Marcador visual do ponto clicado
+- Dois modos de operação:
+  - **Ocultar**: Remove barra de tarefas das capturas
+  - **Manter**: Preserva a interface completa
 
-3. **Capturar Evidências**
-   - Clique em qualquer lugar da tela para capturar
-   - Use `F6` para pausar temporariamente
-   - Use `F7` para retomar
+**Como usar:**
+1. Pressione `F8` para iniciar a gravação
+2. Clique em qualquer lugar da tela para capturar
+3. Use `F6` para pausar/retomar
+4. Pressione `F9` para finalizar e salvar
 
-4. **Finalizar e Editar**
-   - Pressione `F9` para finalizar
-   - Revise e edite as evidências
-   - Adicione comentários
+**Arquivos gerados:**
+- Imagens PNG com timestamp
+- Arquivo JSON com metadados
+- Log de sessão de captura
 
-5. **Gerar Documento**
-   - Clique em `Gerar Documento`
-   - O DOCX será salvo automaticamente
+### 📄 Gerar Templates (F9)
 
-### Funcionalidades Avançadas
+**Objetivo:** Criação de templates DOCX personalizados para documentação.
 
-#### Editor de Evidências
-- **Adicionar Setas**: Destaque elementos importantes
-- **Inserir Texto**: Adicione anotações diretamente na imagem
-- **Desenhar Retângulos**: Enquadre áreas específicas
-- **Círculos de Destaque**: Realce pontos de interesse
+**Recursos:**
+- Templates com campos dinâmicos
+- Suporte a arquivos CSV para dados em lote
+- Campos personalizáveis: `[NOME_CAMPO]`
+- Preservação de formatação original
 
-#### Templates Personalizados
-1. Crie um documento DOCX com sua formatação
-2. Use como template para manter consistência
-3. O PrintF preservará estilos e formatação
+**Como usar:**
+1. Prepare um arquivo CSV com coluna 'Nome'
+2. Crie ou edite um template DOCX
+3. Insira campos dinâmicos: `[PROJETO]`, `[MÓDULO]`, etc
+4. Execute o módulo para gerar documentos
+
+**Exemplo de campos:**
+```
+[NOME_DO_PROJETO]
+[MÓDULO]
+[VERSÃO]
+[RESPONSÁVEL]
+[DATA]
+[AMBIENTE]
+```
+
+### 📋 Gerar Documentos (F10)
+
+**Objetivo:** Transformar evidências capturadas em documentação profissional.
+
+**Recursos:**
+- Navegação interativa entre evidências
+- Editor integrado para comentários
+- Adição de observações e anotações
+- Geração de DOCX final formatado
+- Inclusão automática de metadados
+
+**Como usar:**
+1. Selecione a pasta com evidências
+2. Navegue pelas capturas usando os controles
+3. Adicione comentários e observações
+4. Clique em "Gerar Documento" para criar o DOCX
+
+**Estrutura do documento gerado:**
+- Cabeçalho com informações do projeto
+- Seção de detalhes do teste
+- Evidências com timestamps
+- Comentários e observações
+- Metadados técnicos
+
+### 🗑️ Limpar Arquivos (F11)
+
+**Objetivo:** Gerenciamento e organização eficiente do espaço em disco.
+
+**Recursos:**
+- Análise detalhada de uso de disco
+- Filtros por tipo, tamanho e data
+- Exclusão segura com confirmação
+- Proteção contra remoção acidental
+- Estatísticas de limpeza
+
+**Como usar:**
+1. Selecione a pasta para análise
+2. Revise os arquivos listados
+3. Aplique filtros conforme necessário
+4. Marque itens para exclusão
+5. Confirme a operação
 
 ## 🔨 Compilação
 
-### Criar Executável Único
+### Gerar Executável com PyInstaller
 
-#### Usando PyInstaller
+#### Método 1: Comando Direto (Rápido)
 
 ```bash
-# Instalar PyInstaller
+# 1. Instalar PyInstaller
 pip install pyinstaller
 
-# Compilar aplicativo
-pyinstaller --onefile \
-            --windowed \
-            --name="PrintF" \
-            --icon="assets/icon.ico" \
-            --add-data="assets;assets" \
-            --hidden-import="PIL._tkinter_finder" \
-            printF_v2.py
-
-# O executável estará em: dist/PrintF.exe
+# 2. Compilar aplicação
+pyinstaller --onefile --windowed --name "PrintF" \
+  --add-data "modules;modules" \
+  --add-data "config.py;." \
+  --hidden-import=modules.capture \
+  --hidden-import=modules.template_gen \
+  --hidden-import=modules.evidence_gen \
+  --hidden-import=modules.cleanup \
+  --hidden-import=modules.styles \
+  --hidden-import=PIL._tkinter_finder \
+  main.py
 ```
 
-#### Script de Build Automatizado
+#### Método 2: Script Automatizado (Windows)
 
-```bash
-# Windows
-build.bat
+Execute o arquivo `gerarEXE.bat` incluído no projeto:
 
-# Linux/macOS
-chmod +x build.sh
-./build.sh
+```batch
+gerarEXE.bat
 ```
 
-### Build com Configurações Avançadas
+#### Método 3: Configuração Personalizada
+
+Crie um arquivo `build.spec`:
 
 ```python
-# build_config.spec
+# -*- mode: python ; coding: utf-8 -*-
+import os
+
 a = Analysis(
-    ['printF_v2.py'],
-    pathex=[],
+    ['main.py'],
+    pathex=[os.getcwd()],
     binaries=[],
     datas=[
-        ('assets', 'assets'),
-        ('templates', 'templates')
+        ('modules/*.py', 'modules'),
+        ('config.py', '.'),
+        ('assets/icon.ico', 'assets')
     ],
     hiddenimports=[
+        'modules.capture',
+        'modules.template_gen', 
+        'modules.evidence_gen',
+        'modules.cleanup',
+        'modules.styles',
         'PIL._tkinter_finder',
-        'pynput.keyboard._win32',
-        'pynput.mouse._win32'
+        'docx',
+        'pyautogui',
+        'pynput.keyboard',
+        'pynput.mouse'
     ],
     hookspath=[],
-    hooksconfig={},
     runtime_hooks=[],
-    excludes=['matplotlib', 'numpy', 'scipy'],
+    excludes=[],
     noarchive=False,
 )
 
-pyz = PYZ(a.pure)
+pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
+    a.zipfiles,
     a.datas,
     [],
     name='PrintF',
@@ -273,157 +317,224 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon='assets/icon.ico',
+    icon='assets/icon.ico'
 )
 ```
 
-Execute com:
+Execute:
 ```bash
-pyinstaller build_config.spec
+pyinstaller build.spec
+```
+
+### 📦 Localização do Executável
+
+Após compilação bem-sucedida:
+
+```
+dist/
+└── PrintF.exe  ← SEU EXECUTÁVEL AQUI
 ```
 
 ## 📁 Estrutura do Projeto
 
 ```
-printf/
+PrintF/
 │
-├── printF_v2.py          # Aplicativo principal unificado
-├── README.md             # Documentação
-├── requirements.txt      # Dependências Python
-├── LICENSE              # Licença do projeto
+├── 🐍 main.py                  # Aplicação principal e orquestração
+├── ⚙️ config.py                # Configurações globais do sistema
+├── 📄 requirements.txt         # Dependências do projeto
+├── 📄 README.md               # Esta documentação
+├── 🔨 gerarEXE.bat            # Script de compilação (Windows)
 │
-├── assets/              # Recursos visuais
-│   ├── icon.ico        # Ícone do aplicativo
-│   └── screenshots/    # Capturas de tela para documentação
+├── 📁 modules/                 # Módulos da aplicação
+│   ├── 🎯 capture.py          # Sistema de captura de evidências
+│   ├── 📑 template_gen.py     # Gerador de templates DOCX
+│   ├── 📄 evidence_gen.py     # Gerador de documentos finais
+│   ├── 🗑️ cleanup.py          # Gerenciador de limpeza
+│   └── 🎨 styles.py           # Sistema de temas visuais
 │
-├── templates/           # Templates DOCX
-│   ├── default.docx    # Template padrão
-│   └── custom/         # Templates personalizados
+├── 📁 assets/                  # Recursos visuais (opcional)
+│   └── icon.ico               # Ícone da aplicação
 │
-├── scripts/            # Scripts auxiliares
-│   ├── build.bat      # Script de build Windows
-│   ├── build.sh       # Script de build Linux/macOS
-│   ├── install.bat    # Instalador Windows
-│   └── install.sh     # Instalador Linux/macOS
+├── 📁 Output/                  # ✅ Criado automaticamente
+│   └── [evidências]           # Screenshots e metadados
 │
-└── dist/              # Executáveis compilados
-    └── PrintF.exe     # Aplicativo compilado
+├── 📁 Templates/               # ✅ Criado automaticamente
+│   └── template_evidencias.docx
+│
+├── 📁 Config/                  # ✅ Criado automaticamente
+│   └── user_settings.json     # Preferências do usuário
+│
+└── 📁 Logs/                    # ✅ Criado automaticamente
+    └── printf_[DATA].log       # Logs de execução
 ```
 
 ## ⌨️ Atalhos de Teclado
 
-| Atalho | Função |
-|--------|--------|
+### Atalhos Globais
+
+| Tecla | Função |
+|-------|--------|
+| `F8` | Abrir módulo Capturar Evidências |
+| `F9` | Abrir módulo Gerar Templates |
+| `F10` | Abrir módulo Gerar Documentos |
+| `F11` | Abrir módulo Limpar Arquivos |
+| `F12` | Fechar aplicação |
+
+### Módulo de Captura
+
+| Tecla | Função |
+|-------|--------|
 | `F8` | Iniciar gravação |
-| `F6` | Pausar gravação |
-| `F7` | Retomar gravação |
-| `F9` | Finalizar gravação |
-| `F12` | Fechar aplicativo |
-| `Ctrl+N` | Nova sessão |
-| `Ctrl+Q` | Sair |
-| `Ctrl+Z` | Desfazer (no editor) |
+| `F6` | Pausar/Retomar gravação |
+| `F9` | Finalizar e salvar gravação |
+| `Mouse Click` | Capturar screenshot |
 
 ## 🔧 Solução de Problemas
 
-### Problema: "PrintF já está em execução"
-**Solução:**
+### ❌ Executável não é gerado
+
+**Possíveis causas:**
+- Falta de permissões de administrador
+- Espaço insuficiente em disco
+- PyInstaller não instalado corretamente
+
+**Soluções:**
 ```bash
-# Windows: Abrir Gerenciador de Tarefas e finalizar PrintF.exe
-# Linux/macOS:
-pkill -f printF_v2.py
-# Ou remover arquivo de lock:
-rm ~/.printf/printf.lock
+# 1. Executar terminal como administrador
+# 2. Verificar espaço em disco
+# 3. Reinstalar PyInstaller
+pip uninstall pyinstaller
+pip install pyinstaller --upgrade
 ```
 
-### Problema: Erro de importação de módulos
-**Solução:**
-```bash
-# Reinstalar dependências
-pip install --upgrade -r requirements.txt
+### ❌ "ModuleNotFoundError" ao executar
+
+**Solução:** Adicione os módulos faltantes ao `hiddenimports` no comando PyInstaller:
+
+```python
+--hidden-import=nome_do_modulo_faltante
 ```
 
-### Problema: Captura de tela preta ou incorreta
-**Solução:**
-1. Instale a biblioteca `mss` para melhor suporte:
-   ```bash
-   pip install mss
-   ```
-2. No Windows, instale `pywin32`:
-   ```bash
-   pip install pywin32
-   ```
+### ❌ Interface não carrega ou apresenta erros
 
-### Problema: Documento DOCX não é gerado
+**Diagnóstico:**
+```bash
+# Execute via terminal para ver erros detalhados
+PrintF.exe
+
+# Ou no código fonte
+python main.py
+```
+
+**Verifique:**
+- Dependências instaladas corretamente
+- Logs em `Logs/printf_[DATA].log`
+- Permissões de escrita nas pastas
+
+### ❌ Captura de tela não funciona (Linux)
+
 **Solução:**
 ```bash
-# Verificar instalação do python-docx
-pip install --upgrade python-docx
+# Instalar dependências do sistema
+sudo apt-get update
+sudo apt-get install python3-tk python3-dev scrot
+
+# Instalar dependências Python
+pip install python-xlib
 ```
+
+### ❌ Tema Liquid Glass não aparece
+
+**Verificações:**
+1. Confirme que `modules/styles.py` existe
+2. Verifique o arquivo `Config/user_settings.json`:
+```json
+{
+  "theme": "liquid_glass"
+}
+```
+3. Reinicie a aplicação
+
+### 📊 Logs de Diagnóstico
+
+Os logs detalhados estão disponíveis em:
+```
+Logs/printf_[DATA_HORA].log
+```
+
+Eles incluem:
+- Erros de execução
+- Avisos de configuração
+- Operações realizadas
+- Performance do sistema
+
+## 📄 Licença
+
+Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
+
+```
+MIT License
+
+Copyright (c) 2024 PrintF Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## 👥 Autores
+
+- **Fernanda Maria dos Santos Braga** - [GitHub](https://github.com/fernanda)
+- **Thiago Gomes Rocha** - [GitHub](https://github.com/thiago)
 
 ## 🤝 Contribuindo
 
 Contribuições são bem-vindas! Por favor:
 
 1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add: nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
+2. Crie uma branch para sua feature (`git checkout -b feature/MinhaFeature`)
+3. Commit suas mudanças (`git commit -m 'Adiciona MinhaFeature'`)
+4. Push para a branch (`git push origin feature/MinhaFeature`)
 5. Abra um Pull Request
 
-### Diretrizes de Código
+## 📞 Suporte
 
-- Siga PEP 8
-- Adicione docstrings
-- Escreva testes quando aplicável
-- Mantenha a compatibilidade com Python 3.8+
+- 🐛 [Reportar Bug](https://github.com/usuario/printf/issues)
+- 💡 [Solicitar Feature](https://github.com/usuario/printf/issues)
+- 💬 [Discussões](https://github.com/usuario/printf/discussions)
 
-## 📝 Changelog
+## 🗺️ Roadmap
 
-### v2.0.0 (2024-01-XX)
-- 🎉 Reformulação completa do sistema
-- ✨ Aplicativo unificado (single executable)
-- 🏗️ Arquitetura modular com classes bem definidas
-- 🚀 Performance otimizada na captura
-- 🛡️ Melhor tratamento de erros
-- 📚 Documentação completa
-- 🔧 Sistema de configuração aprimorado
-- 🎨 Interface modernizada
-
-### v1.0.0 (2024-01-XX)
-- Versão inicial
-- Múltiplos executáveis
-- Funcionalidades básicas
-
-## 📄 Licença
-
-Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
-
-## 👥 Autores
-
-- **Fernanda Maria dos Santos Braga** - *Desenvolvimento Principal* - [GitHub](https://github.com/fsantos337)
-- **Thiago Gomes Rocha** - *Desenvolvimento Principal* - [GitHub](https://github.com/thiagogomesrocha)
-
-## 🙏 Agradecimentos
-
-- Comunidade Python
-- Contribuidores do projeto
-- Usuários que reportaram bugs e sugeriram melhorias
+- [ ] Suporte para vídeos de evidência
+- [ ] Integração com ferramentas de gestão de testes
+- [ ] Exportação para PDF
+- [ ] Modo escuro/claro alternável
+- [ ] Tradução para outros idiomas
+- [ ] API REST para integração
+- [ ] Plugin para navegadores
 
 ---
 
 <p align="center">
-  Desenvolvido com ❤️ para facilitar a documentação de testes
+  <strong>Desenvolvido com ❤️ para a comunidade de testes de software</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/seu-usuario/printf/issues">Reportar Bug</a> •
-  <a href="https://github.com/seu-usuario/printf/issues">Solicitar Feature</a>
+  <a href="#-índice">⬆️ Voltar ao topo</a>
 </p>
