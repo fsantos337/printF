@@ -200,6 +200,10 @@ class LiquidGlassStyle:
                  background=[("active", "#C12A2E"),
                            ("pressed", "#A32024")])
 
+        style.map("Back.TButton",
+                 background=[("active", "#e7b13c"),
+                           ("pressed", "#A32024")])                   
+
         # Checkbutton/Radiobutton - CORRIGIDO: textos claros
         style.configure("Glass.TRadiobutton",
                        background=cls.BG_CARD,

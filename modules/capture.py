@@ -330,7 +330,7 @@ class CaptureModule:
             try:
                 voltar_btn = ttk.Button(main_frame, text="⬅ Voltar ao Menu", 
                                       command=self.hide,
-                                      style="Error.TButton")
+                                      style="Back.TButton")
                 voltar_btn.pack(pady=15, fill=tk.X)
             except:
                 # Fallback se o estilo Error não estiver disponível
@@ -339,7 +339,7 @@ class CaptureModule:
         else:
             voltar_btn = tk.Button(main_frame, text="⬅ Voltar ao Menu", 
                                  command=self.hide,
-                                 bg="#e74c3c", fg="white", font=("Arial", 11), relief="flat")
+                                 bg="#e7b13c", fg="white", font=("Arial", 11), relief="flat")
             voltar_btn.pack(pady=15, fill=tk.X)
 
         # Configurar atalhos
@@ -656,16 +656,21 @@ class CaptureModule:
         
         return pasta_automatica
 
-    # 🔥 NOVA FUNÇÃO: LIMPAR NOME DE ARQUIVO PARA EVITAR PROBLEMAS NO WINDOWS
+    # 🔥 CORREÇÃO: FUNÇÃO PARA LIMPAR NOME DE ARQUIVO MANTENDO CARACTERES PT-BR
     def _limpar_nome_arquivo(self, nome):
-        """Remove caracteres inválidos para nomes de arquivo no Windows"""
+        """Remove caracteres inválidos para nomes de arquivo no Windows, mantendo caracteres PT-BR"""
         # Caracteres inválidos no Windows: \ / : * ? " < > |
         caracteres_invalidos = r'[\\/*?:"<>|]'
         nome_limpo = re.sub(caracteres_invalidos, '_', nome)
         
+        # 🔥 CORREÇÃO: Permitir caracteres acentuados e especiais do português
+        # Manter letras acentuadas, ç, ñ, e outros caracteres comuns no PT-BR
+        # Esta regex mantém: letras (incluindo acentuadas), números, espaços, hífens, underscores, pontos e parênteses
+        nome_limpo = re.sub(r'[^\w\s\-\.\(\)áàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]', '', nome_limpo)
+        
         # 🔥 CORREÇÃO ADICIONAL: LIMITAR TAMANHO DO NOME PARA EVITAR CAMINHOS MUITO LONGOS
-        if len(nome_limpo) > 50:
-            nome_limpo = nome_limpo[:50]
+        if len(nome_limpo) > 100:  # Aumentado para 100 caracteres
+            nome_limpo = nome_limpo[:100]
             
         return nome_limpo.strip()
 
