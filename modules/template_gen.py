@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import platform
 import re
 import threading
 import time
@@ -12,8 +13,10 @@ from datetime import datetime
 
 import pandas as pd
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import RGBColor
+from docx.oxml import parse_xml
 
 
 class ConfigManager:
@@ -25,7 +28,7 @@ class ConfigManager:
         {"label": "Campo3:", "key": "campo3"},
         {"label": "Campo4:", "key": "campo4"},
         {"label": "Campo5:", "key": "campo5"},
-        {"label": "Campo6", "key": "campo6"}
+        {"label": "Campo6:", "key": "campo6"}
     ]
 
     def __init__(self, config_file: str = 'config_campos.json'):
@@ -58,298 +61,137 @@ class ConfigManager:
 
 
 class CSVReader:
-    """Responsável pela leitura de arquivos CSV com suporte a campos BDD - VERSÃO CORRIGIDA PARA ROVO"""
+    """Responsável pela leitura de arquivos CSV"""
     
     ENCODINGS = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
 
     @staticmethod
-    def read_csv(file_path: str) -> Optional[List[Dict]]:
-        """Lê um arquivo CSV e retorna lista de dicionários com dados completos"""
+    def read_csv(file_path: str) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[pd.DataFrame]]:
+        """Lê um arquivo CSV e retorna a lista de nomes, colunas e o DataFrame completo"""
         try:
-            # Primeiro tenta o método específico para CSV do Rovo
-            result = CSVReader._read_rovo_csv(file_path)
-            if result:
-                return result
-            
-            # Fallback para métodos anteriores
-            return CSVReader._read_with_pandas_advanced(file_path) or CSVReader._read_manual_advanced(file_path)
+            return CSVReader._read_with_pandas(file_path)
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao ler o CSV: {e}")
+            return None, None, None
+
+    @staticmethod
+    def _read_with_pandas(file_path: str) -> Tuple[Optional[List[str]], Optional[List[str]], Optional[pd.DataFrame]]:
+        """Tenta ler o CSV usando pandas e retorna nomes, colunas e DataFrame"""
+        for encoding in CSVReader.ENCODINGS:
+            try:
+                df = pd.read_csv(file_path, encoding=encoding, engine='python', 
+                               on_bad_lines='skip')
+                if 'Nome' in df.columns:
+                    nomes = df['Nome'].dropna().str.strip()
+                    nomes_list = nomes[nomes != ''].tolist()
+                    colunas = [col for col in df.columns if col != 'Nome']
+                    return nomes_list, colunas, df
+                else:
+                    # Se não encontrar coluna "Nome", usa a primeira coluna
+                    primeira_coluna = df.columns[0]
+                    nomes = df[primeira_coluna].dropna().str.strip()
+                    nomes_list = nomes[nomes != ''].tolist()
+                    colunas = [col for col in df.columns if col != primeira_coluna]
+                    return nomes_list, colunas, df
+            except Exception:
+                continue
+        return None, None, None
+
+    @staticmethod
+    def get_csv_columns(file_path: str) -> Optional[List[str]]:
+        """Obtém apenas as colunas do arquivo CSV"""
+        try:
+            for encoding in CSVReader.ENCODINGS:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding, engine='python', 
+                                   on_bad_lines='skip', nrows=1)
+                    return df.columns.tolist()
+                except Exception:
+                    continue
+            return None
+        except Exception as e:
+            print(f"Erro ao obter colunas do CSV: {e}")
             return None
 
-    @staticmethod
-    def _read_rovo_csv(file_path: str) -> Optional[List[Dict]]:
-        """Método específico para ler CSVs do Rovo com campos multilinha"""
-        for encoding in CSVReader.ENCODINGS:
-            try:
-                with open(file_path, 'r', encoding=encoding) as file:
-                    content = file.read()
-                
-                # Processar linhas manualmente para lidar com campos multilinha
-                lines = content.splitlines()
-                if not lines:
-                    return None
-                
-                # Obter cabeçalho
-                headers = [h.strip() for h in lines[0].split(',')]
-                
-                resultados = []
-                current_row = {}
-                current_field = None
-                buffer = []
-                
-                for line in lines[1:]:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    # Verificar se é início de novo registro (começa com aspas)
-                    if line.startswith('"') and not current_field:
-                        # Finalizar registro anterior se existir
-                        if current_row:
-                            # Processar BDD do registro anterior
-                            bdd_text = current_row.get('Script de Teste (BDD)', '')
-                            cenario_bdd = CSVReader._parse_bdd_scenario(bdd_text)
-                            current_row.update(cenario_bdd)
-                            resultados.append(current_row)
-                        
-                        # Novo registro
-                        current_row = {}
-                        buffer = []
-                        
-                        # Parsear primeira linha do novo registro
-                        if '"' in line:
-                            reader = csv.reader([line])
-                            parts = next(reader)
-                        else:
-                            parts = line.split(',')
-                        
-                        # Preencher campos iniciais
-                        for i, header in enumerate(headers):
-                            if i < len(parts):
-                                current_row[header] = parts[i].strip().strip('"')
-                            else:
-                                current_row[header] = ""
-                    
-                    else:
-                        # Continuidade do campo anterior (provavelmente BDD)
-                        if 'Script de Teste (BDD)' in current_row and current_row['Script de Teste (BDD)']:
-                            # Adicionar à linha atual do BDD
-                            current_row['Script de Teste (BDD)'] += " " + line.strip().strip('"')
-                        else:
-                            # Tentar parsear como linha normal
-                            if '"' in line:
-                                reader = csv.reader([line])
-                                parts = next(reader)
-                            else:
-                                parts = line.split(',')
-                            
-                            for i, header in enumerate(headers):
-                                if i < len(parts) and header not in current_row:
-                                    current_row[header] = parts[i].strip().strip('"')
-                
-                # Adicionar último registro
-                if current_row:
-                    bdd_text = current_row.get('Script de Teste (BDD)', '')
-                    cenario_bdd = CSVReader._parse_bdd_scenario(bdd_text)
-                    current_row.update(cenario_bdd)
-                    resultados.append(current_row)
-                
-                return resultados if resultados else None
-                
-            except Exception as e:
-                print(f"Encoding {encoding} falhou no método Rovo: {e}")
-                continue
-        return None
 
-    @staticmethod
-    def _read_with_pandas_advanced(file_path: str) -> Optional[List[Dict]]:
-        """Tenta ler o CSV usando pandas com configuração específica para Rovo"""
-        for encoding in CSVReader.ENCODINGS:
-            try:
-                # Configuração específica para CSV com campos multilinha
-                df = pd.read_csv(
-                    file_path, 
-                    encoding=encoding, 
-                    engine='python',
-                    quotechar='"',
-                    doublequote=True,
-                    skipinitialspace=True,
-                    on_bad_lines='skip'
-                )
-                
-                if df.empty:
-                    return None
-                
-                # Normalizar nomes de colunas
-                df.columns = [col.strip() for col in df.columns]
-                
-                resultados = []
-                for _, row in df.iterrows():
-                    dados = {}
-                    
-                    # Coletar todos os campos disponíveis
-                    for coluna in df.columns:
-                        valor = str(row[coluna]).strip() if pd.notna(row[coluna]) else ""
-                        dados[coluna] = valor
-                    
-                    # Processar cenário BDD se existir
-                    bdd_text = ""
-                    if 'Script de Teste (BDD)' in df.columns:
-                        bdd_text = dados.get('Script de Teste (BDD)', '')
-                    
-                    # Extrair Given, When, Then do texto BDD
-                    cenario_bdd = CSVReader._parse_bdd_scenario(bdd_text)
-                    dados.update(cenario_bdd)
-                    
-                    resultados.append(dados)
-                
-                return resultados
-                
-            except Exception as e:
-                print(f"Tentativa com encoding {encoding} falhou: {e}")
-                continue
-        return None
-
-    @staticmethod
-    def _read_manual_advanced(file_path: str) -> Optional[List[Dict]]:
-        """Leitura manual do CSV como fallback - versão avançada"""
-        for encoding in CSVReader.ENCODINGS:
-            try:
-                with open(file_path, 'r', encoding=encoding) as file:
-                    # Ler todo o conteúdo para lidar com quebras de linha
-                    content = file.read()
-                
-                lines = content.splitlines()
-                if not lines:
-                    return None
-                
-                # Processar cabeçalho
-                header_line = lines[0].strip()
-                headers = []
-                if '"' in header_line:
-                    reader = csv.reader([header_line])
-                    headers = next(reader)
-                else:
-                    headers = header_line.split(',')
-                
-                headers = [h.strip().strip('"') for h in headers]
-                
-                resultados = []
-                i = 1
-                while i < len(lines):
-                    line = lines[i].strip()
-                    if not line:
-                        i += 1
-                        continue
-                    
-                    dados = {}
-                    
-                    # Verificar se a linha começa com aspas (indicando novo registro)
-                    if line.startswith('"'):
-                        # Tentar parsear a linha atual
-                        current_line = line
-                        line_parts = []
-                        
-                        if '"' in current_line:
-                            try:
-                                reader = csv.reader([current_line])
-                                line_parts = next(reader)
-                            except:
-                                line_parts = current_line.split(',')
-                        else:
-                            line_parts = current_line.split(',')
-                        
-                        # Preencher dados
-                        for j, header in enumerate(headers):
-                            if j < len(line_parts):
-                                dados[header] = line_parts[j].strip().strip('"')
-                            else:
-                                dados[header] = ""
-                        
-                        # Verificar se o campo BDD continua nas próximas linhas
-                        if 'Script de Teste (BDD)' in headers:
-                            bdd_index = headers.index('Script de Teste (BDD)')
-                            if bdd_index < len(line_parts):
-                                bdd_content = line_parts[bdd_index]
-                                # Procurar por continuação do BDD nas próximas linhas
-                                k = i + 1
-                                while k < len(lines) and not lines[k].strip().startswith('"'):
-                                    bdd_content += " " + lines[k].strip().strip('"')
-                                    k += 1
-                                dados['Script de Teste (BDD)'] = bdd_content
-                                i = k - 1  # Ajustar índice
-                    
-                    else:
-                        # Linha normal
-                        if '"' in line:
-                            try:
-                                reader = csv.reader([line])
-                                parts = next(reader)
-                            except:
-                                parts = line.split(',')
-                        else:
-                            parts = line.split(',')
-                        
-                        for j, header in enumerate(headers):
-                            if j < len(parts):
-                                dados[header] = parts[j].strip().strip('"')
-                            else:
-                                dados[header] = ""
-                    
-                    # Processar cenário BDD se existir
-                    bdd_text = dados.get('Script de Teste (BDD)', '')
-                    cenario_bdd = CSVReader._parse_bdd_scenario(bdd_text)
-                    dados.update(cenario_bdd)
-                    
-                    resultados.append(dados)
-                    i += 1
-                
-                return resultados if resultados else None
-                
-            except Exception as e:
-                print(f"Encoding {encoding} falhou: {e}")
-                continue
-        return None
-
-    @staticmethod
-    def _parse_bdd_scenario(bdd_text: str) -> Dict[str, str]:
-        """Extrai Given, When, Then do texto BDD - VERSÃO MELHORADA"""
-        cenario = {
-            'Given': '',
-            'When': '', 
-            'Then': '',
-            'And': ''
-        }
+class ColumnSelectionDialog:
+    """Diálogo para seleção de colunas do CSV"""
+    
+    def __init__(self, parent, colunas: List[str]):
+        self.parent = parent
+        self.colunas = colunas
+        self.selected_columns = []
         
-        if not bdd_text or bdd_text == 'N/A':
-            return cenario
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Selecionar Colunas do CSV")
+        self.dialog.geometry("500x400")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
         
-        # Limpar e normalizar o texto
-        bdd_text = ' '.join(bdd_text.split())  # Remove quebras de linha múltiplas
-        bdd_text = bdd_text.replace('\n', ' ').replace('\r', ' ')
+        self._setup_ui()
         
-        # Padrões para encontrar as seções BDD (case insensitive)
-        patterns = {
-            'Given': r'Given\s+(.*?)(?=When|Then|And|$)',
-            'When': r'When\s+(.*?)(?=Then|And|Given|$)',
-            'Then': r'Then\s+(.*?)(?=And|When|Given|$)',
-            'And': r'And\s+(.*?)(?=Then|When|Given|$)'
-        }
+    def _setup_ui(self):
+        main_frame = ttk.Frame(self.dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        for key, pattern in patterns.items():
-            matches = re.findall(pattern, bdd_text, re.IGNORECASE | re.DOTALL)
-            if matches:
-                # Juntar múltiplas ocorrências e limpar
-                extracted = ' '.join([match.strip() for match in matches if match.strip()])
-                # Remover pontuação extra no final
-                cenario[key] = extracted.rstrip('.,;')
+        ttk.Label(main_frame, text="Selecione as colunas que deseja incluir no documento:", 
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
         
-        # Log para debug
-        if any(cenario.values()):
-            print(f"📋 BDD extraído: {cenario}")
+        # Frame para a lista de colunas com scrollbar
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        return cenario
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Listbox com múltipla seleção
+        self.listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, yscrollcommand=scrollbar.set)
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar.config(command=self.listbox.yview)
+        
+        # Preencher listbox com colunas
+        for coluna in self.colunas:
+            self.listbox.insert(tk.END, coluna)
+        
+        # Frame para botões
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(button_frame, text="Selecionar Todas", 
+                  command=self._select_all).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="Desmarcar Todas", 
+                  command=self._deselect_all).pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(button_frame, text="Confirmar", 
+                  command=self._confirm).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Cancelar", 
+                  command=self._cancel).pack(side=tk.RIGHT)
+    
+    def _select_all(self):
+        """Seleciona todas as colunas"""
+        self.listbox.select_set(0, tk.END)
+    
+    def _deselect_all(self):
+        """Deseleciona todas as colunas"""
+        self.listbox.select_clear(0, tk.END)
+    
+    def _confirm(self):
+        """Confirma a seleção"""
+        selections = self.listbox.curselection()
+        self.selected_columns = [self.colunas[i] for i in selections]
+        self.dialog.destroy()
+    
+    def _cancel(self):
+        """Cancela a seleção"""
+        self.selected_columns = []
+        self.dialog.destroy()
+    
+    def show(self) -> List[str]:
+        """Mostra o diálogo e retorna as colunas selecionadas"""
+        self.parent.wait_window(self.dialog)
+        return self.selected_columns
 
 
 class DocumentProcessor:
@@ -381,188 +223,187 @@ class DocumentProcessor:
         if ':' in texto_original:
             field_key = texto_original.split(':', 1)[0].strip()
             if field_key in field_mapping:
-                paragraph.text = f"{field_mapping[field_key]}: "
+                nova_label = field_mapping[field_key]
+                
+                # CORREÇÃO: Substitui apenas o texto antes dos dois pontos mantendo a formatação
+                for run in paragraph.runs:
+                    if field_key in run.text:
+                        # Substitui o campo antigo pelo novo mantendo a formatação
+                        run.text = run.text.replace(field_key, nova_label)
+                        # Garante que o campo fique em negrito
+                        run.bold = True
+                        break
 
     @staticmethod
-    def fill_template(doc: Document, data: Dict[str, str], field_mapping: Dict[str, str]) -> bool:
-        """Preenche o template com os dados fornecidos - INCLUINDO CAMPOS BDD
-        Retorna True se algum campo BDD foi preenchido"""
-        
+    def fill_template(doc: Document, data: Dict[str, str], field_mapping: Dict[str, str], 
+                     colunas_selecionadas: List[str] = None, dados_csv: Dict[str, str] = None) -> None:
+        """Preenche o template com os dados fornecidos"""
         # Primeiro ajusta os campos do template de acordo com as labels do JSON
         DocumentProcessor.adjust_template_fields(doc, field_mapping)
         
-        # Cria mapeamento label -> valor para campos configurados
+        # Cria mapeamento label -> valor
         label_to_value = {}
         for original_key, label in field_mapping.items():
             label_to_value[label] = data.get(original_key, '')
         
-        # Adicionar campos especiais
         label_to_value['Caso de Teste'] = data.get('Caso de Teste', '')
         
-        # Adicionar campos BDD se existirem nos dados
-        bdd_fields = ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)']
-        for field in bdd_fields:
-            if field in data and data[field]:
-                # Usar o próprio nome do campo como label
-                label_to_value[field] = data[field]
-        
-        # Adicionar outros campos comuns do CSV
-        common_fields = ['Objetivo', 'Pré-condição', 'Precondição', 'Status', 'Priority']
-        for field in common_fields:
-            if field in data and data[field] and data[field] != 'N/A':
-                label_to_value[field] = data[field]
-        
-        # Preenche parágrafos e verifica se algum campo BDD foi preenchido
-        bdd_was_filled = False
+        # Preenche parágrafos
         for paragraph in doc.paragraphs:
-            if DocumentProcessor._fill_paragraph(paragraph, label_to_value):
-                bdd_was_filled = True
+            DocumentProcessor._fill_paragraph(paragraph, label_to_value)
         
         # Preenche tabelas
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
                     for paragraph in cell.paragraphs:
-                        if DocumentProcessor._fill_paragraph(paragraph, label_to_value):
-                            bdd_was_filled = True
+                        DocumentProcessor._fill_paragraph(paragraph, label_to_value)
         
-        return bdd_was_filled
+        # Adiciona tabela com dados do CSV se houver colunas selecionadas
+        if colunas_selecionadas and dados_csv:
+            DocumentProcessor._adicionar_tabela_csv(doc, colunas_selecionadas, dados_csv)
 
     @staticmethod
-    def _fill_paragraph(paragraph, label_to_value: Dict[str, str]) -> bool:
-        """Preenche um parágrafo específico com os dados. Retorna True se preencheu campo BDD."""
+    def _fill_paragraph(paragraph, label_to_value: Dict[str, str]) -> None:
+        """Preenche um parágrafo específico com os dados - campo em negrito, valor normal"""
         texto = paragraph.text.strip()
-        bdd_was_filled = False
-        
-        # Verificar se o parágrafo contém algum campo que precisa ser preenchido
-        for field_name, value in label_to_value.items():
-            # Padrão: "Field Name: " ou "Field Name:" 
-            patterns = [
-                f"{field_name}: ",
-                f"{field_name}:",
-                f"{field_name} : ",
-                f"{field_name} :"
-            ]
-            
-            for pattern in patterns:
-                if pattern in texto:
-                    # Substituir mantendo a formatação
-                    paragraph.text = paragraph.text.replace(pattern, f"{field_name}: {value}")
-                    # Verificar se era um campo BDD
-                    if field_name in ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)']:
-                        bdd_was_filled = True
-                    return bdd_was_filled
-        
-        # Fallback: se o texto terminar com ":" e corresponder a um campo
         if ':' in texto:
             field_name = texto.split(':', 1)[0].strip()
             if field_name in label_to_value:
-                paragraph.text = f"{field_name}: {label_to_value[field_name]}"
-                if field_name in ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)']:
-                    bdd_was_filled = True
-        
-        return bdd_was_filled
+                valor = label_to_value[field_name]
+                
+                # CORREÇÃO: Busca pela formatação original do campo no template
+                formato_original = None
+                if paragraph.runs:
+                    # Tenta encontrar um run que contenha o campo para pegar a formatação
+                    for run in paragraph.runs:
+                        if field_name in run.text:
+                            formato_original = {
+                                'font_name': run.font.name,
+                                'font_size': run.font.size,
+                                'color': run.font.color.rgb if hasattr(run.font, 'color') and run.font.color else None
+                            }
+                            break
+                
+                # Se não encontrou formatação, usa padrão do primeiro run
+                if not formato_original and paragraph.runs:
+                    primeiro_run = paragraph.runs[0]
+                    formato_original = {
+                        'font_name': primeiro_run.font.name,
+                        'font_size': primeiro_run.font.size,
+                        'color': primeiro_run.font.color.rgb if hasattr(primeiro_run.font, 'color') and primeiro_run.font.color else None
+                    }
+                
+                # Limpa todo o conteúdo do parágrafo
+                for run in paragraph.runs:
+                    run.text = ""
+                
+                # Adiciona o CAMPO em NEGRITO
+                campo_run = paragraph.add_run(f"{field_name}: ")
+                campo_run.bold = True
+                
+                # Adiciona o VALOR SEM NEGRITO
+                valor_run = paragraph.add_run(valor)
+                valor_run.bold = False
+                
+                # Aplica a formatação original se encontrada
+                if formato_original:
+                    for run in paragraph.runs:
+                        run.font.name = formato_original['font_name']
+                        run.font.size = formato_original['font_size']
+                        if formato_original['color']:
+                            run.font.color.rgb = formato_original['color']
 
     @staticmethod
-    def add_bdd_section_to_template(doc: Document, data: Dict[str, str]) -> None:
-        """Adiciona uma seção BDD no final do documento template se não existir"""
-        # Verificar se existem dados BDD
-        has_bdd_data = any(data.get(key) for key in ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)'])
-        
-        if not has_bdd_data:
+    def _adicionar_tabela_csv(doc: Document, colunas_selecionadas: List[str], dados_csv: Dict[str, str]) -> None:
+        """Adiciona uma tabela com os dados do CSV ao documento"""
+        if not colunas_selecionadas or not dados_csv:
             return
         
-        # Verificar se já existe uma seção BDD no documento
-        has_existing_bdd = False
-        for paragraph in doc.paragraphs:
-            if 'BDD' in paragraph.text or 'Behavior Driven Development' in paragraph.text:
-                has_existing_bdd = True
-                break
+        # Adiciona um espaço antes da tabela
+        doc.add_paragraph()
         
-        if has_existing_bdd:
-            return
+        # Adiciona título da tabela - ARIAL 16 NEGRITO
+        titulo = doc.add_heading('Dados Adicionais do Caso de Teste', level=2)
+        for run in titulo.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(16)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Adicionar quebra de página
-        doc.add_page_break()
+        # Cria tabela sem estilo para remover cores de fundo
+        tabela = doc.add_table(rows=len(colunas_selecionadas), cols=2)
         
-        # Adicionar título da seção BDD
-        title = doc.add_heading('Cenário BDD (Behavior Driven Development)', level=1)
-        
-        # Coletar dados BDD
-        bdd_data = []
-        
-        # Adicionar Given se existir
-        given_text = data.get('Given', '')
-        if given_text:
-            bdd_data.append(('Given', given_text))
-        
-        # Adicionar When se existir
-        when_text = data.get('When', '')
-        if when_text:
-            bdd_data.append(('When', when_text))
-        
-        # Adicionar Then se existir
-        then_text = data.get('Then', '')
-        if then_text:
-            bdd_data.append(('Then', then_text))
-        
-        # Adicionar And se existir
-        and_text = data.get('And', '')
-        if and_text:
-            bdd_data.append(('And', and_text))
-        
-        # Adicionar cenário completo se existir e for diferente dos dados extraídos
-        cenario_completo = data.get('Script de Teste (BDD)', '')
-        if cenario_completo and cenario_completo != 'N/A':
-            # Verificar se o cenário completo é diferente dos dados extraídos
-            partes_extraidas = [given_text, when_text, then_text, and_text]
-            texto_extraido = ' '.join(filter(None, partes_extraidas))
-            
-            if texto_extraido.strip() != cenario_completo.strip():
-                bdd_data.append(('Cenário Completo', cenario_completo))
-        
-        if not bdd_data:
-            return
-        
-        # Tabela para cenário BDD
-        bdd_table = doc.add_table(rows=len(bdd_data), cols=2)
-        bdd_table.style = 'Light Grid Accent 1'
-        
-        # Configurar largura das colunas
-        bdd_table.columns[0].width = Inches(1.5)
-        bdd_table.columns[1].width = Inches(5.5)
-        
-        for i, (etapa, descricao) in enumerate(bdd_data):
-            cells = bdd_table.rows[i].cells
-            cells[0].text = etapa
-            cells[1].text = descricao
-            
-            # Formatar célula da etapa em negrito
-            for paragraph in cells[0].paragraphs:
-                for run in paragraph.runs:
-                    run.bold = True
+        # Adicionar dados diretamente sem cabeçalho
+        for i, coluna in enumerate(colunas_selecionadas):
+            if coluna in dados_csv:
+                row_cells = tabela.rows[i].cells
+                
+                # Primeira coluna: nome do campo em Arial 16 NEGRITO
+                row_cells[0].text = coluna
+                for paragraph in row_cells[0].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = True
+                        run.font.color.rgb = RGBColor(0, 0, 0)
+                
+                # Segunda coluna: valor em Arial 16 SEM NEGRITO
+                row_cells[1].text = str(dados_csv[coluna])
+                for paragraph in row_cells[1].paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = False
+                        run.font.color.rgb = RGBColor(0, 0, 0)
+                
+                # Adicionar bordas pretas às células
+                for cell in row_cells:
+                    tcPr = cell._element.get_or_add_tcPr()
+                    tcBorders = parse_xml(r'<w:tcBorders xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                                          r'<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                                          r'</w:tcBorders>')
+                    tcPr.append(tcBorders)
+        # Adiciona um espaço depois da tabela
+        doc.add_paragraph()
 
 
 class DefaultDocumentGenerator:
     """Gera documentos padrão quando nenhum template é fornecido"""
     
     @staticmethod
-    def create_default_document(data: Dict[str, str], field_config: List[Dict]) -> Document:
-        """Cria um documento padrão com estrutura organizada incluindo BDD"""
+    def create_default_document(data: Dict[str, str], field_config: List[Dict], 
+                               colunas_selecionadas: List[str] = None, 
+                               dados_csv: Dict[str, str] = None) -> Document:
+        """Cria um documento padrão com estrutura organizada"""
         doc = Document()
         
-        # Título do documento
+        # Configurar estilos de fonte padrão
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Arial'
+        font.size = Pt(12)
+        font.color.rgb = RGBColor(0, 0, 0) # Preto
+        
+        # Título do documento - Arial 20, negrito
         title = doc.add_heading('Evidências de Teste - Documentação', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Adicionar data e hora
-        current_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        date_para = doc.add_paragraph(f"Gerado em: {current_time}")
-        date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        doc.add_paragraph()
+        for run in title.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(16)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Seção de informações do teste
-        doc.add_heading('Informações do Teste', level=1)
+        info_heading = doc.add_heading('Informações do Teste', level=1)
+        for run in info_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Tabela para dados organizados
         table = doc.add_table(rows=len(field_config) + 1, cols=2)
@@ -576,8 +417,12 @@ class DefaultDocumentGenerator:
         # Formatar cabeçalho
         for cell in header_cells:
             for paragraph in cell.paragraphs:
+                paragraph.style = doc.styles['Normal']
                 for run in paragraph.runs:
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(12)
                     run.bold = True
+                    run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         # Preencher dados da configuração
         for i, campo_info in enumerate(field_config, 1):
@@ -587,50 +432,66 @@ class DefaultDocumentGenerator:
             row_cells = table.rows[i].cells
             row_cells[0].text = label
             row_cells[1].text = data.get(key, 'Não informado')
+            
+            # Aplicar estilo Arial 12 sem negrito
+            for cell in row_cells:
+                for paragraph in cell.paragraphs:
+                    paragraph.style = doc.styles['Normal']
+                    for run in paragraph.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(12)
+                        run.bold = True
+                        run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         doc.add_paragraph()
         
-        # Seção do caso de teste
-        doc.add_heading('Caso de Teste', level=1)
+        # Seção do caso de teste - ARIAL 16 NEGRITO para o label e 16 normal para o valor
         caso_teste_para = doc.add_paragraph()
-        caso_teste_para.add_run('Nome do Caso de Teste: ').bold = True
-        caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
+        caso_run = caso_teste_para.add_run('Nome do Caso de Teste: ')
+        caso_run.bold = True
+        caso_run.font.name = 'Arial'
+        caso_run.font.size = Pt(12)
+        caso_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
-        # Seção de objetivo se disponível
-        objetivo = data.get('Objetivo', '')
-        if objetivo and objetivo != 'N/A':
-            doc.add_heading('Objetivo do Teste', level=2)
-            doc.add_paragraph(objetivo)
+        nome_run = caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
+        nome_run.font.name = 'Arial'
+        nome_run.font.size = Pt(12)
+        nome_run.bold = False  # SEM NEGRITO para o valor
+        nome_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
-        # Seção de pré-condições se disponível
-        pre_condicao = data.get('Pré-condição', data.get('Precondição', ''))
-        if pre_condicao and pre_condicao != 'N/A':
-            doc.add_heading('Pré-condições', level=2)
-            doc.add_paragraph(pre_condicao)
+        # Adicionar tabela com dados do CSV se houver colunas selecionadas
+        if colunas_selecionadas and dados_csv:
+            DocumentProcessor._adicionar_tabela_csv(doc, colunas_selecionadas, dados_csv)
         
-        # SEÇÃO BDD - SÓ ADICIONA SE HOUVER DADOS BDD
-        has_bdd_data = DefaultDocumentGenerator._add_bdd_section(doc, data)
+        doc.add_paragraph()
         
-        # Seção de descrição do teste
-        doc.add_heading('Descrição do Teste', level=2)
-        if has_bdd_data:
-            doc.add_paragraph(
-                "O cenário de teste foi definido utilizando a metodologia BDD (Behavior Driven Development) "
-                "na seção acima. Esta seção deve conter a descrição detalhada da execução do teste, "
-                "incluindo os passos executados e evidências coletadas."
-            )
-        else:
-            doc.add_paragraph(
-                "Esta seção deve conter a descrição detalhada do caso de teste executado, "
-                "incluindo pré-condições, passos de execução e resultados esperados."
-            )
+        # Seção de descrição
+        desc_heading = doc.add_heading('Descrição do Teste', level=2)
+        for run in desc_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+        desc_para = doc.add_paragraph(
+            "Esta seção deve conter a descrição detalhada do caso de teste executado, "
+            "incluindo pré-condições, passos de execução e resultados esperados."
+        )
+        desc_para.style = doc.styles['Normal']
         
         # Seção de evidências
-        doc.add_heading('Evidências Coletadas', level=2)
-        doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
+        evid_heading = doc.add_heading('Evidências Coletadas', level=2)
+        for run in evid_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+        evid_para = doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
+        evid_para.style = doc.styles['Normal']
         
-        # Tabela para evidências
-        evidencias_table = doc.add_table(rows=5, cols=3)
+        # Tabela para evidências - CORRIGIDO: 6 linhas (cabeçalho + 5 etapas)
+        evidencias_table = doc.add_table(rows=6, cols=3)
         evidencias_table.style = 'Light Grid Accent 1'
         
         # Cabeçalho da tabela de evidências
@@ -639,10 +500,14 @@ class DefaultDocumentGenerator:
         for col, header in enumerate(headers):
             evidencias_header[col].text = header
             for paragraph in evidencias_header[col].paragraphs:
+                paragraph.style = doc.styles['Normal']
                 for run in paragraph.runs:
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(12)
                     run.bold = True
+                    run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
-        # Linhas para preenchimento
+        # Linhas para preenchimento - CORRIGIDO: usar índices de 1 a 5
         etapas = [
             'Pré-condições',
             'Configuração Inicial', 
@@ -652,153 +517,58 @@ class DefaultDocumentGenerator:
         ]
         
         for row, etapa in enumerate(etapas, 1):
-            row_cells = evidencias_table.rows[row].cells
-            row_cells[0].text = etapa
-            row_cells[1].text = "[Descreva a evidência coletada]"
-            row_cells[2].text = "[Resultado obtido - OK/Erro]"
+            if row < len(evidencias_table.rows):  # Verificação de segurança
+                row_cells = evidencias_table.rows[row].cells
+                row_cells[0].text = etapa
+                row_cells[1].text = "[Descreva a evidência coletada]"
+                row_cells[2].text = "[Resultado obtido - OK/Erro]"
+                
+                # Aplicar estilo Arial 12 sem negrito
+                for cell in row_cells:
+                    for paragraph in cell.paragraphs:
+                        paragraph.style = doc.styles['Normal']
+                        for run in paragraph.runs:
+                            run.font.name = 'Arial'
+                            run.font.size = Pt(12)
+                            run.bold = True
+                            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         doc.add_paragraph()
         
         # Seção de observações
-        doc.add_heading('Observações e Comentários', level=2)
-        doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
+        obs_heading = doc.add_heading('Observações e Comentários', level=2)
+        for run in obs_heading.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(12)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+        obs_para = doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
+        obs_para.style = doc.styles['Normal']
         
         # Área para observações
-        obs_para = doc.add_paragraph()
-        obs_para.add_run("Observações Gerais:\n").bold = True
-        obs_para.add_run("• [Insira observações sobre problemas encontrados]\n")
-        obs_para.add_run("• [Comentários sobre o comportamento do sistema]\n")
-        obs_para.add_run("• [Sugestões de melhorias]\n")
-        obs_para.add_run("• [Outras informações relevantes]")
+        obs_list_para = doc.add_paragraph()
+        obs_title_run = obs_list_para.add_run("Observações Gerais:\n")
+        obs_title_run.bold = True
+        obs_title_run.font.name = 'Arial'
+        obs_title_run.font.size = Pt(12)
+        obs_title_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
-        # Rodapé informativo
-        doc.add_paragraph()
-        footer = doc.add_paragraph()
-        footer.add_run("Documento gerado automaticamente pelo PrintF - Gerador de Templates").italic = True
-        footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        obs_items = [
+            "• [Insira observações sobre problemas encontrados]\n",
+            "• [Comentários sobre o comportamento do sistema]\n",
+            "• [Sugestões de melhorias]\n",
+            "• [Outras informações relevantes]"
+        ]
+        
+        for item in obs_items:
+            item_run = obs_list_para.add_run(item)
+            item_run.font.name = 'Arial'
+            item_run.font.size = Pt(12)
+            item_run.bold = True
+            item_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
         
         return doc
-
-    @staticmethod
-    def _add_bdd_section(doc: Document, data: Dict[str, str]) -> bool:
-        """Adiciona seção BDD ao documento se existirem dados. Retorna True se adicionou dados BDD."""
-        # Verificar se existem dados BDD
-        has_bdd_data = any(data.get(key) for key in ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)'])
-        
-        if not has_bdd_data:
-            return False
-        
-        doc.add_heading('Cenário BDD (Behavior Driven Development)', level=2)
-        
-        # Coletar dados BDD
-        bdd_data = []
-        
-        # Adicionar Given se existir
-        given_text = data.get('Given', '')
-        if given_text:
-            bdd_data.append(('Given', given_text))
-        
-        # Adicionar When se existir
-        when_text = data.get('When', '')
-        if when_text:
-            bdd_data.append(('When', when_text))
-        
-        # Adicionar Then se existir
-        then_text = data.get('Then', '')
-        if then_text:
-            bdd_data.append(('Then', then_text))
-        
-        # Adicionar And se existir
-        and_text = data.get('And', '')
-        if and_text:
-            bdd_data.append(('And', and_text))
-        
-        # Adicionar cenário completo se existir e for diferente dos dados extraídos
-        cenario_completo = data.get('Script de Teste (BDD)', '')
-        if cenario_completo and cenario_completo != 'N/A':
-            # Verificar se o cenário completo é diferente dos dados extraídos
-            partes_extraidas = [given_text, when_text, then_text, and_text]
-            texto_extraido = ' '.join(filter(None, partes_extraidas))
-            
-            if texto_extraido.strip() != cenario_completo.strip():
-                bdd_data.append(('Cenário Completo', cenario_completo))
-        
-        if not bdd_data:
-            return False
-        
-        # Tabela para cenário BDD
-        bdd_table = doc.add_table(rows=len(bdd_data), cols=2)
-        bdd_table.style = 'Light Grid Accent 1'
-        
-        # Configurar largura das colunas
-        bdd_table.columns[0].width = Inches(1.5)
-        bdd_table.columns[1].width = Inches(5.5)
-        
-        for i, (etapa, descricao) in enumerate(bdd_data):
-            cells = bdd_table.rows[i].cells
-            cells[0].text = etapa
-            cells[1].text = descricao
-            
-            # Formatar célula da etapa em negrito
-            for paragraph in cells[0].paragraphs:
-                for run in paragraph.runs:
-                    run.bold = True
-        
-        doc.add_paragraph()
-        return True
-
-
-class TemplateGenerator:
-    """Gerador de templates de exemplo"""
-    
-    @staticmethod
-    def create_example_template(field_config: List[Dict]) -> bool:
-        """Cria um template de exemplo com base na configuração"""
-        try:
-            doc = Document()
-            doc.add_heading('Template de Evidências de Teste', level=1)
-            
-            # Adicionar instruções
-            info_para = doc.add_paragraph()
-            info_para.add_run("Instruções: ").bold = True
-            info_para.add_run("Este é um template de exemplo. Os campos abaixo serão preenchidos automaticamente.")
-            
-            doc.add_paragraph()
-            
-            # Adicionar campos da configuração
-            for campo_info in field_config:
-                doc.add_paragraph(f"{campo_info['label']} [VALOR]")
-            
-            doc.add_paragraph()
-            
-            # Seção para caso de teste
-            doc.add_heading('Detalhes do Caso de Teste', level=2)
-            doc.add_paragraph("Caso de Teste: [NOME_DO_CASO]")
-            
-            # Seção BDD
-            doc.add_heading('Cenário BDD', level=3)
-            doc.add_paragraph("Given: [PRÉ-CONDIÇÕES]")
-            doc.add_paragraph("When: [AÇÃO]")
-            doc.add_paragraph("Then: [RESULTADO ESPERADO]")
-            doc.add_paragraph("And: [CONDIÇÕES ADICIONAIS]")
-            
-            # Tabela para evidências
-            table = doc.add_table(rows=4, cols=2)
-            table.style = 'Table Grid'
-            table.cell(0, 0).text = 'Caminho da Funcionalidade:'
-            table.cell(0, 1).text = '[CAMINHO]'
-            table.cell(1, 0).text = 'Resultado Esperado:'
-            table.cell(1, 1).text = '[RESULTADO_ESPERADO]'
-            table.cell(2, 0).text = 'Resultado Obtido:'
-            table.cell(2, 1).text = '[RESULTADO_OBTIDO]'
-            table.cell(3, 0).text = 'Observações:'
-            table.cell(3, 1).text = '[OBSERVACOES]'
-            
-            doc.save('template_evidencias.docx')
-            return True
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao criar template: {e}")
-            return False
 
 
 class TemplateGeneratorModule:
@@ -816,6 +586,11 @@ class TemplateGeneratorModule:
         
         self.campos_config = self.config_manager.load_config()
         self.campos_entries: Dict[str, tk.Entry] = {}
+        
+        # Novos atributos para controle das colunas do CSV (igual ao geradorTemplates)
+        self.colunas_selecionadas: List[str] = []
+        self.df_csv: Optional[pd.DataFrame] = None
+        self.csv_colunas: List[str] = []
         
         # Variável para controle de diretório automático
         self.auto_directory_var = tk.BooleanVar(value=True)
@@ -869,7 +644,7 @@ class TemplateGeneratorModule:
 
     def _create_title_section(self, parent) -> None:
         """Cria a seção do título"""
-        titulo = ttk.Label(parent, text="📄 PrintF - Gerar Templates", 
+        titulo = ttk.Label(parent, text="📄 PrintF - Gerador de Templates", 
                           font=("Arial", 16, "bold"))
         titulo.grid(row=0, column=0, columnspan=3, pady=(0, 20))
         
@@ -1034,15 +809,114 @@ class TemplateGeneratorModule:
     def _criar_template_exemplo_automatico(self) -> bool:
         """Cria template de exemplo automaticamente (sem interação do usuário)"""
         try:
-            return TemplateGenerator.create_example_template(self.campos_config)
+            doc = Document()
+            
+            # Configurar estilo normal para Arial 12
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Arial'
+            font.size = Pt(12)
+            font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            # Título principal - Arial 20, negrito
+            main_title = doc.add_heading('Evidências de Teste', level=1)
+            for run in main_title.runs:
+                run.font.name = 'Arial'
+                run.font.size = Pt(16)
+                run.bold = True
+                run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            doc.add_paragraph()
+            
+            # Adicionar campos da configuração
+            for campo_info in self.campos_config:
+                campo_para = doc.add_paragraph()
+                label_run = campo_para.add_run(f"{campo_info['label']} ")
+                label_run.font.name = 'Arial'
+                label_run.font.size = Pt(12)
+                label_run.bold = True
+                label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+                
+                value_run = campo_para.add_run("[VALOR]")
+                value_run.font.name = 'Arial'
+                value_run.font.size = Pt(12)
+                value_run.bold = False
+                value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            doc.add_paragraph()
+            
+            # Seção para caso de teste
+            caso_para = doc.add_paragraph()
+            caso_label_run = caso_para.add_run("Caso de Teste: ")
+            caso_label_run.font.name = 'Arial'
+            caso_label_run.font.size = Pt(12)
+            caso_label_run.bold = True
+            caso_label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            caso_value_run = caso_para.add_run("[NOME_DO_CASO]")
+            caso_value_run.font.name = 'Arial'
+            caso_value_run.font.size = Pt(12)
+            caso_value_run.bold = False
+            caso_value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            
+            doc.save('template_evidencias.docx')
+            return True
         except Exception as e:
             self.log(f"⚠️ Aviso: Não foi possível criar template automático: {e}")
             return False
 
     # Métodos de seleção de arquivos
     def selecionar_csv(self) -> None:
-        self._select_file(self.csv_entry, "Selecionar arquivo CSV", 
-                         [("CSV Files", "*.csv"), ("Todos os arquivos", "*.*")])
+        arquivo = filedialog.askopenfilename(title="Selecionar arquivo CSV", 
+                                            filetypes=[("CSV Files", "*.csv"), ("Todos os arquivos", "*.*")])
+        if arquivo:
+            self.csv_entry.delete(0, tk.END)
+            self.csv_entry.insert(0, arquivo)
+            
+            # Verificar se o CSV tem colunas além do Nome
+            self._verificar_colunas_csv(arquivo)
+
+    def _verificar_colunas_csv(self, arquivo_csv: str) -> None:
+        """Verifica se o CSV tem colunas adicionais e pergunta ao usuário se deseja selecioná-las"""
+        try:
+            # Obter colunas do CSV
+            colunas = self.csv_reader.get_csv_columns(arquivo_csv)
+            
+            if colunas and len(colunas) > 1:  # Tem colunas além do Nome (ou primeira coluna)
+                # Remover a coluna de nome (assumindo que é a primeira)
+                coluna_nome = colunas[0]
+                colunas_adicionais = colunas[1:] if len(colunas) > 1 else []
+                
+                if colunas_adicionais:
+                    self.log(f"📊 CSV possui {len(colunas_adicionais)} colunas adicionais")
+                    
+                    # Perguntar ao usuário se deseja selecionar colunas
+                    resposta = messagebox.askyesno(
+                        "Colunas Adicionais Encontradas", 
+                        f"O arquivo CSV possui {len(colunas_adicionais)} colunas adicionais:\n\n" +
+                        "\n".join(f"• {coluna}" for coluna in colunas_adicionais) +
+                        "\n\nDeseja selecionar quais colunas incluir nos documentos?"
+                    )
+                    
+                    if resposta:
+                        # Mostrar diálogo de seleção de colunas
+                        dialog = ColumnSelectionDialog(self.window, colunas_adicionais)
+                        self.colunas_selecionadas = dialog.show()
+                        
+                        if self.colunas_selecionadas:
+                            self.log(f"✅ Colunas selecionadas: {', '.join(self.colunas_selecionadas)}")
+                        else:
+                            self.log("ℹ️ Nenhuma coluna adicional selecionada")
+                    
+                    # Carregar o DataFrame completo para uso posterior
+                    _, _, self.df_csv = self.csv_reader.read_csv(arquivo_csv)
+            else:
+                self.log("ℹ️ CSV não possui colunas adicionais para seleção")
+                self.colunas_selecionadas = []
+                
+        except Exception as e:
+            self.log(f"⚠️ Erro ao verificar colunas do CSV: {e}")
+            self.colunas_selecionadas = []
 
     def selecionar_template(self) -> None:
         arquivo = filedialog.askopenfilename(
@@ -1065,13 +939,6 @@ class TemplateGeneratorModule:
             self.auto_directory_var.set(False)
             self.pasta_entry.config(state='normal')
 
-    def _select_file(self, entry_widget: ttk.Entry, title: str, filetypes: List[Tuple]) -> None:
-        """Seleciona um arquivo e atualiza o campo de entrada"""
-        arquivo = filedialog.askopenfilename(title=title, filetypes=filetypes)
-        if arquivo:
-            entry_widget.delete(0, tk.END)
-            entry_widget.insert(0, arquivo)
-
     def limpar_campos(self) -> None:
         """Limpa todos os campos da interface"""
         for entry in [self.csv_entry, self.template_entry, self.pasta_entry]:
@@ -1082,6 +949,11 @@ class TemplateGeneratorModule:
         
         self._clear_log()
         self.progress['value'] = 0
+        
+        # Limpar seleção de colunas
+        self.colunas_selecionadas = []
+        self.df_csv = None
+        
         # Restaurar auto directory
         self.auto_directory_var.set(True)
         self.pasta_entry.config(state='disabled')
@@ -1122,6 +994,36 @@ class TemplateGeneratorModule:
             return False
         
         return True
+
+    def _obter_dados_csv_por_nome(self, nome_caso_teste: str) -> Dict[str, str]:
+        """Obtém os dados do CSV para um caso de teste específico"""
+        if self.df_csv is None or not self.colunas_selecionadas:
+            return {}
+        
+        try:
+            # Encontrar a linha correspondente ao nome do caso de teste
+            # Assumindo que a primeira coluna contém os nomes
+            coluna_nome = self.df_csv.columns[0]
+            linha = self.df_csv[self.df_csv[coluna_nome] == nome_caso_teste]
+            
+            if not linha.empty:
+                dados = {}
+                for coluna in self.colunas_selecionadas:
+                    if coluna in linha.columns:
+                        valor = linha[coluna].iloc[0]
+                        # Converter para string e tratar valores NaN
+                        if pd.isna(valor):
+                            dados[coluna] = ""
+                        else:
+                            dados[coluna] = str(valor)
+                    else:
+                        dados[coluna] = ""
+                return dados
+        
+        except Exception as e:
+            self.log(f"⚠️ Erro ao obter dados do CSV para '{nome_caso_teste}': {e}")
+        
+        return {}
 
     def _get_output_directory(self, template_path: str) -> str:
         """Determina o diretório de saída baseado nas configurações"""
@@ -1168,34 +1070,17 @@ class TemplateGeneratorModule:
                 output_folder = '.'
             
             self.log("📖 Lendo arquivo CSV...")
-            dados_csv = self.csv_reader.read_csv(csv_path)
-            
-            if not dados_csv:
-                messagebox.showerror("Erro", "Não foi possível ler os dados do CSV")
-                self.gerar_btn.config(state='normal')
-                return
-            
-            # Log detalhado sobre o que foi lido
-            self.log(f"📊 Total de registros lidos: {len(dados_csv)}")
-            
-            # Verificar se há dados BDD
-            casos_com_bdd = 0
-            for item in dados_csv:
-                if any(item.get(key) for key in ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)']):
-                    casos_com_bdd += 1
-            
-            self.log(f"📋 Casos com dados BDD: {casos_com_bdd}")
-            
-            # Extrair casos de teste
-            casos_teste = []
-            for item in dados_csv:
-                if 'Nome' in item and item['Nome'].strip():
-                    casos_teste.append(item)
+            casos_teste, colunas_csv, self.df_csv = self.csv_reader.read_csv(csv_path)
             
             if not casos_teste:
-                messagebox.showerror("Erro", "Não foi possível encontrar casos de teste no CSV")
+                messagebox.showerror("Erro", "Não foi possível ler os casos de teste do CSV")
                 self.gerar_btn.config(state='normal')
                 return
+            
+            # Se não tivermos colunas selecionadas mas o CSV tiver colunas adicionais, 
+            # perguntar novamente (pode acontecer se o usuário cancelou anteriormente)
+            if not self.colunas_selecionadas and colunas_csv and len(colunas_csv) > 0:
+                self._verificar_colunas_csv(csv_path)
             
             # Determinar modo de operação
             use_default_template = True
@@ -1227,7 +1112,7 @@ class TemplateGeneratorModule:
                 return ""
         return template_path
 
-    def _process_test_cases(self, casos_teste: List[Dict], dados_fixos: Dict[str, str], 
+    def _process_test_cases(self, casos_teste: List[str], dados_fixos: Dict[str, str], 
                            template_path: str, output_folder: str, use_default_template: bool) -> None:
         """Processa cada caso de teste individualmente"""
         self.log(f"📊 Encontrados {len(casos_teste)} casos de teste\n")
@@ -1241,25 +1126,25 @@ class TemplateGeneratorModule:
         field_mapping = {campo['key']: campo['label'].rstrip(':').strip() 
                         for campo in self.campos_config}
         
-        campo_nome = next(iter(dados_fixos.keys()))
-        
         for i, caso_teste in enumerate(casos_teste, 1):
             try:
                 self.progress['value'] = i
-                nome_caso = caso_teste.get('Nome', f'Caso_{i}')
-                self.log(f"🔄 Processando: {nome_caso}")
+                self.log(f"🔄 Processando: {caso_teste}")
+                
+                # Obter dados do CSV para este caso de teste
+                dados_csv = self._obter_dados_csv_por_nome(caso_teste)
                 
                 if self._generate_single_document(caso_teste, dados_fixos, template_path, 
-                                                output_folder, field_mapping, campo_nome, 
-                                                arquivos_gerados, use_default_template):
+                                                output_folder, field_mapping, 
+                                                arquivos_gerados, use_default_template,
+                                                dados_csv):
                     sucessos += 1
                 else:
-                    erros.append((nome_caso, "Erro na geração"))
+                    erros.append((caso_teste, "Erro na geração"))
                     
             except Exception as e:
-                nome_caso = caso_teste.get('Nome', f'Caso_{i}')
-                self.log(f"❌ Erro no caso '{nome_caso}': {e}\n")
-                erros.append((nome_caso, str(e)))
+                self.log(f"❌ Erro no caso '{caso_teste}': {e}\n")
+                erros.append((caso_teste, str(e)))
             
             time.sleep(0.05)  # Pequena pausa para não sobrecarregar
             
@@ -1267,64 +1152,34 @@ class TemplateGeneratorModule:
                                output_folder, arquivos_gerados)
         self.gerar_btn.config(state='normal')
 
-    def _generate_single_document(self, caso_teste: Dict, dados_fixos: Dict[str, str], 
+    def _generate_single_document(self, caso_teste: str, dados_fixos: Dict[str, str], 
                                 template_path: str, output_folder: str, 
-                                field_mapping: Dict[str, str], campo_nome: str,
-                                arquivos_gerados: set, use_default_template: bool) -> bool:
-        """Gera um único documento - versão robusta com suporte a BDD"""
+                                field_mapping: Dict[str, str],
+                                arquivos_gerados: set, use_default_template: bool,
+                                dados_csv: Dict[str, str] = None) -> bool:
+        """Gera um único documento - CORRIGIDO: tratamento de erro melhorado"""
         try:
-            nome_caso = caso_teste.get('Nome', 'Caso_Desconhecido')
-            
-            # Combinar dados fixos com dados do CSV - CORREÇÃO CRÍTICA
-            dados_completos = dados_fixos.copy()  # Começa com dados da interface
-            
-            # Adicionar TODOS os dados do CSV (sobrescrevendo se necessário)
-            for key, value in caso_teste.items():
-                if value and value != 'N/A':  # Ignorar campos vazios ou "N/A"
-                    dados_completos[key] = value
-            
-            # Garantir que o nome do caso de teste está correto
-            dados_completos['Caso de Teste'] = nome_caso
-            
-            # Log dos dados BDD para debug
-            bdd_fields = ['Given', 'When', 'Then', 'And', 'Script de Teste (BDD)']
-            bdd_dados = {k: v for k, v in caso_teste.items() if k in bdd_fields and v}
-            
-            if bdd_dados:
-                self.log(f"   📋 Dados BDD encontrados: {list(bdd_dados.keys())}")
-                for campo, valor in bdd_dados.items():
-                    if campo == 'Script de Teste (BDD)':
-                        self.log(f"      {campo}: {valor[:100]}{'...' if len(valor) > 100 else ''}")
-                    else:
-                        self.log(f"      {campo}: {valor}")
+            dados_completos = dados_fixos.copy()
+            dados_completos['Caso de Teste'] = caso_teste
             
             # Usar template se fornecido e existir, caso contrário criar documento padrão
             if not use_default_template:
                 try:
                     doc = Document(template_path)
-                    # Tenta preencher o template e verifica se algum campo BDD foi preenchido
-                    bdd_was_filled = self.doc_processor.fill_template(doc, dados_completos, field_mapping)
-                    self.log("   📝 Template personalizado preenchido")
-                    
-                    # SE HÁ DADOS BDD MAS NENHUM CAMPO BDD FOI PREENCHIDO NO TEMPLATE, ADICIONA SEÇÃO BDD
-                    if bdd_dados and not bdd_was_filled:
-                        self.log("   ➕ Adicionando seção BDD ao template personalizado")
-                        self.doc_processor.add_bdd_section_to_template(doc, dados_completos)
-                    
+                    self.doc_processor.fill_template(doc, dados_completos, field_mapping,
+                                                   self.colunas_selecionadas, dados_csv)
                 except Exception as e:
                     self.log(f"⚠️ Erro ao usar template personalizado: {e}. Usando template padrão...")
                     doc = self.default_doc_generator.create_default_document(
-                        dados_completos, self.campos_config)
+                        dados_completos, self.campos_config, self.colunas_selecionadas, dados_csv)
             else:
                 # Criar documento padrão com todos os dados
                 doc = self.default_doc_generator.create_default_document(
-                    dados_completos, self.campos_config)
-                self.log("   📝 Documento padrão gerado")
+                    dados_completos, self.campos_config, self.colunas_selecionadas, dados_csv)
             
-            # Gerar nome do arquivo
-            nome_base = self.doc_processor.clean_filename(nome_caso)
-            nome_arquivo = self._generate_unique_filename(
-                f"Evidencia_{dados_fixos[campo_nome]}_{nome_base}.docx", arquivos_gerados)
+            # Nome do arquivo usa apenas o nome do Caso de Teste
+            nome_base = self.doc_processor.clean_filename(caso_teste)
+            nome_arquivo = self._generate_unique_filename(f"{nome_base}.docx", arquivos_gerados)
             
             caminho_completo = Path(output_folder) / nome_arquivo
             
@@ -1332,16 +1187,11 @@ class TemplateGeneratorModule:
             try:
                 doc.save(caminho_completo)
                 self.log(f"✅ Salvo: {nome_arquivo}")
-                
-                # Log de campos BDD processados se existirem
-                if bdd_dados:
-                    self.log(f"   📋 Cenário BDD incluído no documento")
-                    
                 return True
             except Exception as e:
                 # Fallback: tentar salvar com nome diferente
                 try:
-                    nome_alternativo = f"Evidencia_{len(arquivos_gerados)}_{datetime.now().strftime('%H%M%S')}.docx"
+                    nome_alternativo = f"Evidencia_{datetime.now().strftime('%H%M%S')}.docx"
                     caminho_alternativo = Path(output_folder) / nome_alternativo
                     doc.save(caminho_alternativo)
                     self.log(f"✅ Salvo (nome alternativo): {nome_alternativo}")
@@ -1361,43 +1211,72 @@ class TemplateGeneratorModule:
         nome_original = filename
         
         while filename in existing_files:
-            nome, extensao = os.path.splitext(nome_original)
-            filename = f"{nome}_{contador}{extensao}"
+            base, ext = os.path.splitext(nome_original)
+            filename = f"{base}_{contador}{ext}"
             contador += 1
         
         existing_files.add(filename)
         return filename
 
+    def _abrir_pasta(self, caminho_pasta: str) -> None:
+        """Abre a pasta no explorador de arquivos do sistema operacional"""
+        try:
+            caminho_absoluto = Path(caminho_pasta).absolute()
+            
+            if platform.system() == "Windows":
+                os.startfile(caminho_absoluto)
+            elif platform.system() == "Darwin":  # macOS
+                os.system(f'open "{caminho_absoluto}"')
+            else:  # Linux e outros
+                os.system(f'xdg-open "{caminho_absoluto}"')
+                
+            self.log(f"📁 Pasta aberta: {caminho_absoluto}")
+        except Exception as e:
+            self.log(f"⚠️ Não foi possível abrir a pasta automaticamente: {e}")
+            self.log(f"📁 Pasta manual: {caminho_absoluto}")
+
     def _show_final_results(self, sucessos: int, erros: int, total: int, 
                            output_folder: str, arquivos_gerados: set) -> None:
-        """Mostra os resultados finais do processamento"""
-        self.log("\n" + "="*50)
-        self.log("📋 RESUMO DA EXECUÇÃO")
-        self.log("="*50)
-        self.log(f"✅ Documentos gerados com sucesso: {sucessos}")
-        self.log(f"❌ Documentos com erro: {erros}")
+        """Exibe os resultados finais do processamento"""
+        self.log("\n" + "=" * 50)
+        self.log("🎉 PROCESSO CONCLUÍDO!")
+        self.log("=" * 50)
         self.log(f"📊 Total processado: {total}")
+        self.log(f"✅ Sucessos: {sucessos}")
+        self.log(f"❌ Erros: {erros}")
+        self.log(f"📁 Pasta: {Path(output_folder).absolute()}")
+        
+        if self.colunas_selecionadas:
+            self.log(f"📋 Colunas incluídas: {', '.join(self.colunas_selecionadas)}")
         
         if sucessos > 0:
-            self.log(f"📁 Pasta de saída: {output_folder}")
-            self.log(f"📄 Arquivos gerados: {len(arquivos_gerados)}")
+            self.log(f"\n📋 Arquivos gerados:")
+            for arquivo in sorted(arquivos_gerados)[:10]:  # Mostra apenas os 10 primeiros
+                self.log(f"• {arquivo}")
+            if len(arquivos_gerados) > 10:
+                self.log(f"• ... e mais {len(arquivos_gerados) - 10} arquivos")
+        
+        # Abrir pasta automaticamente quando há sucessos
+        if sucessos > 0:
+            self.log("\n📁 Abrindo pasta de resultados...")
+            self._abrir_pasta(output_folder)
             
-            if messagebox.askyesno("Concluído", 
-                                 f"Processamento concluído!\n"
-                                 f"Sucessos: {sucessos}\n"
-                                 f"Erros: {erros}\n\n"
-                                 f"Deseja abrir a pasta de saída?"):
-                try:
-                    os.startfile(output_folder)
-                except:
-                    self.log("⚠️ Não foi possível abrir a pasta automaticamente")
+            messagebox.showinfo("Sucesso", 
+                              f"✅ {sucessos} documentos gerados com sucesso!\n" +
+                              (f"📋 Colunas incluídas: {', '.join(self.colunas_selecionadas)}\n" if self.colunas_selecionadas else "") +
+                              f"📁 Pasta aberta automaticamente: {Path(output_folder).absolute()}")
         else:
-            messagebox.showwarning("Atenção", "Nenhum documento foi gerado com sucesso!")
+            messagebox.showwarning("Concluído com avisos", 
+                                 f"Processo concluído com {erros} erro(s).\n"
+                                 f"✅ {sucessos} documentos gerados com sucesso.\n" +
+                                 (f"📋 Colunas incluídas: {', '.join(self.colunas_selecionadas)}\n" if self.colunas_selecionadas else "") +
+                                 f"📁 Pasta: {Path(output_folder).absolute()}")
 
     def iniciar_processamento(self) -> None:
         """Inicia o processamento em thread separada"""
         self.gerar_btn.config(state='disabled')
         self._clear_log()
+        self.progress['value'] = 0
         
         thread = threading.Thread(target=self.processar_documentos, daemon=True)
         thread.start()
