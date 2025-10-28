@@ -570,7 +570,7 @@ class PrintFApp:
         return color
 
     def open_module(self, module_key):
-        """Abre um módulo específico"""
+        """Abre um módulo específico - CORREÇÃO PARA EVIDENCE"""
         # Fecha módulo atual se existir
         if self.current_module:
             self.current_module.hide()
@@ -583,18 +583,35 @@ class PrintFApp:
                     return
                 self.modules[module_key] = module
             except Exception as e:
-                messagebox.showerror("Erro", f"Falha ao carregar módulo: {e}")
+                messagebox.showerror("Erro", f"Falha ao carregar módulo {module_key}: {e}")
                 return
         
         # Abre novo módulo
         self.current_module = self.modules[module_key]
-        self.current_module.show()
+        
+        # 🔥 CORREÇÃO ESPECÍFICA PARA EVIDENCE_MODULE
+        if module_key == "evidence":
+            try:
+                self.current_module.show()
+            except Exception as e:
+                print(f"❌ Erro específico ao abrir evidence: {e}")
+                # Tentar recriar o módulo
+                try:
+                    from modules.evidence_gen import EvidenceGeneratorModule
+                    self.modules[module_key] = EvidenceGeneratorModule(self.root, self.settings)
+                    self.current_module = self.modules[module_key]
+                    self.current_module.show()
+                except Exception as e2:
+                    messagebox.showerror("Erro", f"Falha crítica ao abrir Gerador de Documentos: {e2}")
+                    return
+        else:
+            self.current_module.show()
         
         # 🔥 NOVO: Minimiza a janela principal ao abrir módulo
         self.root.iconify()
 
     def _create_module(self, module_key):
-        """Cria módulo dinamicamente"""
+        """Cria módulo dinamicamente - CORREÇÃO PARA EVIDENCE"""
         try:
             if module_key == "capture":
                 from modules.capture import CaptureModule

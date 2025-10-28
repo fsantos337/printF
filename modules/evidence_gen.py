@@ -14,6 +14,8 @@ import re
 import glob
 import json
 import uuid
+import shutil
+import subprocess
 
 # Importar sistema de estilos
 try:
@@ -55,6 +57,12 @@ class EvidenceGeneratorModule:
         # Configuração de estilos - CORREÇÃO: Verificar tema nas settings
         self.using_liquid_glass = STYLES_AVAILABLE and self.settings.get('theme', 'liquid_glass') == 'liquid_glass'
         self.style_manager = LiquidGlassStyle if STYLES_AVAILABLE else None
+
+        # 🔥 NOVOS ATRIBUTOS PARA NAVEGAÇÃO
+        self.current_img_label = None
+        self.current_img_tk = None
+        self.comment_entry = None
+        self.pos_label = None
 
     def _apply_styles(self, window):
         """Aplica estilos à janela"""
@@ -209,13 +217,34 @@ class EvidenceGeneratorModule:
         return ""
     
     def show(self):
-        """Mostra a interface do módulo"""
-        if not self.root:
-            self._create_interface()
-        else:
-            self.root.deiconify()
+        """Mostra a interface do módulo - CORREÇÃO MELHORADA"""
+        try:
+            if not self.root or not self.root.winfo_exists():
+                self._create_interface()
+            else:
+                self.root.deiconify()
+                self.root.lift()
+                self.root.focus_set()
+            
+            # Garantir que a janela fique visível
+            self.root.after(100, self._bring_to_front)
+            
+        except Exception as e:
+            print(f"❌ Erro ao mostrar módulo evidence: {e}")
+            # Fallback: criar nova interface
+            try:
+                self._create_interface()
+            except Exception as e2:
+                messagebox.showerror("Erro", f"Falha ao abrir Gerador de Documentos: {e2}")
+
+    def _bring_to_front(self):
+        """Trazer janela para frente"""
+        if self.root and self.root.winfo_exists():
             self.root.lift()
-            self.root.focus_set()
+            self.root.focus_force()
+            # Tentar sobrepor outras janelas
+            self.root.attributes('-topmost', True)
+            self.root.after(100, lambda: self.root.attributes('-topmost', False))
 
     def _create_interface(self):
         """Cria a interface do módulo"""
@@ -457,9 +486,10 @@ class EvidenceGeneratorModule:
             self.current_index = 0  # Reiniciar índice
             
             config_window.destroy()            
-            self.iniciar_processamento()
+            # 🔥 ALTERADO: Em vez de iniciar_processamento, mostrar navegação
+            self.mostrar_janela_navegacao()
         
-        self._create_styled_button(btn_frame, text="Gerar Documento", 
+        self._create_styled_button(btn_frame, text="Iniciar Navegação", 
                                   command=iniciar_geracao, style_type="accent").pack(side=tk.LEFT, padx=5)
         self._create_styled_button(btn_frame, text="Cancelar", 
                                   command=config_window.destroy, style_type="glass").pack(side=tk.LEFT, padx=5)
@@ -467,289 +497,413 @@ class EvidenceGeneratorModule:
         self.root.wait_window(config_window)
         return self.template_path is not None and self.output_dir is not None and self.prints
 
-    def iniciar_processamento(self):
-        os.makedirs(self.output_dir, exist_ok=True)
+    # 🔥 ADICIONADO: MÉTODOS DE NAVEGAÇÃO SIMILARES AO CAPTURE
+    def mostrar_janela_navegacao(self):
+        """Janela principal de navegação pelas evidências"""
+        if self.popup and self.popup.winfo_exists():
+            self.popup.destroy()
 
+        self.popup = tk.Toplevel(self.root)
+        self.popup.title("Navegação de Evidências - Gerador")
+        self.popup.geometry("1200x800")
+        self.popup.resizable(True, True)
+        
+        # 🔥 APLICAR ESTILO À JANELA
+        self._apply_styles(self.popup)
+        
+        # 🔥 CORREÇÃO: Usar transient mas SEM grab_set
+        self.popup.transient(self.root)
+        
+        # Configurar grid para melhor organização
+        self.popup.grid_columnconfigure(0, weight=1)
+        self.popup.grid_rowconfigure(0, weight=1)  # A área da imagem expande
+        
+        # Frame da imagem (maior para melhor visualização)
+        img_frame = self._create_styled_frame(self.popup)
+        img_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        img_frame.grid_rowconfigure(0, weight=1)
+        img_frame.grid_columnconfigure(0, weight=1)
+        
+        self.current_img_label = tk.Label(img_frame, bg="white")
+        self.current_img_label.grid(row=0, column=0, sticky="nsew")
+        
+        # Frame do comentário (abaixo da imagem)
+        comment_frame = self._create_styled_frame(self.popup)
+        comment_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
+                
+        self._create_styled_label(comment_frame, text="Comentário:").pack(anchor="w")
+        
+        # Criar um frame para o campo de entrada
+        comment_entry_frame = self._create_styled_frame(comment_frame)
+        comment_entry_frame.pack(fill=tk.X, pady=2)
+        
+        # Campo de comentário
+        self.comment_entry = tk.Entry(comment_entry_frame, font=("Arial", 10))
+        self.comment_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.comment_entry.bind("<FocusOut>", lambda e: self.salvar_comentario())
+        
+        # Frame principal para os botões de navegação e ação
+        buttons_main_frame = self._create_styled_frame(self.popup)
+        buttons_main_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        
+        # Frame para centralizar os botões de navegação
+        nav_frame = self._create_styled_frame(buttons_main_frame)
+        nav_frame.pack(expand=True, pady=2)
+        
+        # Botões de navegação (centralizados)
+        self._create_styled_button(nav_frame, text="⏮️ Primeira", command=self.primeira_evidencia, 
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        self._create_styled_button(nav_frame, text="◀️ Anterior", command=self.anterior_evidencia,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        # Indicador de posição
+        self.pos_label = tk.Label(nav_frame, text="", font=("Arial", 12, "bold"))
+        self.pos_label.pack(side=tk.LEFT, padx=15)
+        
+        self._create_styled_button(nav_frame, text="▶️ Próxima", command=self.proxima_evidencia,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        self._create_styled_button(nav_frame, text="⏭️ Última", command=self.ultima_evidencia,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        # Pular para específica
+        self._create_styled_button(nav_frame, text="🔢 Ir para...", command=self.ir_para_especifica,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        # Botões de ação no mesmo nível (Editar e Excluir Print)
+        action_frame = self._create_styled_frame(buttons_main_frame)
+        action_frame.pack(expand=True, pady=2)
+        
+        self._create_styled_button(action_frame, text="✏️ Editar Print", command=self.editar_evidencia_atual,
+                                 style_type="glass").pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(action_frame, text="🗑️ Excluir Print", command=self.excluir_evidencia_atual,
+                                 style_type="glass").pack(side=tk.LEFT, padx=5)
+        
+        # Frame de controle (parte inferior)
+        control_frame = self._create_styled_frame(self.popup)
+        control_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
+        
+        # Frame para centralizar os botões de controle
+        control_buttons_frame = self._create_styled_frame(control_frame)
+        control_buttons_frame.pack(expand=True)
+        
+        # Botões na ordem solicitada: Cancelar primeiro, depois Gerar Evidência
+        self._create_styled_button(control_buttons_frame, text="❌ Cancelar", command=self.cancelar_processamento,
+                                 style_type="error").pack(side=tk.LEFT, padx=5)
+        
+        self._create_styled_button(control_buttons_frame, text="✅ Gerar Documento", command=self.finalizar_processamento,
+                                 style_type="accent").pack(side=tk.LEFT, padx=5)
+        
+        # Carregar primeira evidência
+        self.current_index = 0
+        self.atualizar_exibicao()
+        
+        self.popup.protocol("WM_DELETE_WINDOW", self.cancelar_processamento)
+
+    def atualizar_exibicao(self):
+        """Atualiza a exibição da evidência atual"""
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        
         try:
-            if os.path.exists(self.template_path):
+            # Carrega e exibe a imagem com tamanho maior
+            img = Image.open(caminho_print)
+            
+            # Obter o tamanho da área disponível para a imagem
+            self.popup.update()
+            available_width = self.popup.winfo_width() - 40  # Margens
+            available_height = self.popup.winfo_height() - 250  # Espaço para controles
+            
+            # Ajustar a imagem para caber na área disponível
+            img.thumbnail((available_width, available_height))
+            self.current_img_tk = ImageTk.PhotoImage(img)
+            self.current_img_label.config(image=self.current_img_tk)
+            
+            # Atualiza indicador de posição
+            self.pos_label.config(text=f"Evidência {self.current_index + 1} de {len(self.prints)}")
+            
+            # Carrega comentário salvo
+            nome_arquivo = os.path.basename(caminho_print)
+            comentario = self.obter_comentario(nome_arquivo)
+            self.comment_entry.delete(0, tk.END)
+            self.comment_entry.insert(0, comentario)
+            
+        except Exception as e:
+            print(f"Erro ao carregar imagem: {e}")
+
+    def salvar_comentario(self):
+        """Salva o comentário da evidência atual"""
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        nome_arquivo = os.path.basename(caminho_print)
+        comentario = self.comment_entry.get()
+        
+        # Atualiza metadados
+        for evidencia in self.metadata["evidencias"]:
+            if evidencia["arquivo"] == nome_arquivo:
+                evidencia["comentario"] = comentario
+                break
+                
+        self._salvar_metadata()        
+
+    # Métodos de navegação
+    def primeira_evidencia(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.current_index = 0
+        self.atualizar_exibicao()
+
+    def anterior_evidencia(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        if self.current_index > 0:
+            self.current_index -= 1
+            self.atualizar_exibicao()
+
+    def proxima_evidencia(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        if self.current_index < len(self.prints) - 1:
+            self.current_index += 1
+            self.atualizar_exibicao()
+
+    def ultima_evidencia(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.current_index = len(self.prints) - 1
+        self.atualizar_exibicao()
+
+    def ir_para_especifica(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        if not self.prints:
+            return
+            
+        numero = simpledialog.askinteger("Navegar", 
+                                       f"Digite o número da evidência (1-{len(self.prints)}):",
+                                       minvalue=1, maxvalue=len(self.prints))
+        if numero:
+            self.current_index = numero - 1
+            self.atualizar_exibicao()
+
+    def editar_evidencia_atual(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        self.abrir_editor(caminho_print, self.popup)
+        # Recarrega a imagem após edição
+        self.atualizar_exibicao()
+
+    def excluir_evidencia_atual(self):
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        nome_arquivo = os.path.basename(caminho_print)
+        
+        if messagebox.askyesno("Confirmar Exclusão", 
+                             "Tem certeza que deseja excluir este print?"):
+            try:
+                # Remove arquivo físico
+                os.remove(caminho_print)
+                
+                # Marca como excluída nos metadados
+                for evidencia in self.metadata["evidencias"]:
+                    if evidencia["arquivo"] == nome_arquivo:
+                        evidencia["excluida"] = True
+                        break
+                
+                self._salvar_metadata()
+                
+                # Recarrega a lista de evidências
+                self.recarregar_evidencias()
+                
+                if not self.prints:
+                    messagebox.showinfo("Info", "Todas as evidências foram processadas.")
+                    self.finalizar_processamento()
+                    return
+                
+                # Ajusta o índice se necessário
+                if self.current_index >= len(self.prints):
+                    self.current_index = len(self.prints) - 1
+                
+                self.atualizar_exibicao()
+                messagebox.showinfo("Sucesso", "Evidência excluída!")
+                
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}")
+
+    def finalizar_processamento(self):
+        """Processa todas as evidências e gera o DOCX"""
+        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        
+        # Gerar documento
+        try:
+            doc_path = self.gerar_documento()
+            
+            # 🔥 ADICIONADO: ABRIR PASTA APÓS GERAR DOCUMENTO
+            pasta_para_abrir = os.path.dirname(doc_path)
+            
+            resposta = messagebox.askyesno(
+                "Sucesso", 
+                f"Documento gerado com sucesso em:\n{doc_path}\n\nDeseja abrir a pasta onde o documento foi salvo?",
+                parent=self.popup
+            )
+            
+            if resposta:
+                if not self._abrir_pasta(pasta_para_abrir):
+                    messagebox.showinfo(
+                        "Abrir Pasta", 
+                        f"Pasta do documento:\n{pasta_para_abrir}",
+                        parent=self.popup
+                    )
+                    
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao gerar documento: {e}", parent=self.popup)
+        
+        # Fechar janela de navegação
+        if self.popup and self.popup.winfo_exists():
+            self.popup.destroy()
+            self.popup = None
+
+    def _abrir_pasta(self, caminho_pasta):
+        """Abre a pasta no explorador de arquivos do sistema"""
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(caminho_pasta)
+            elif os.name == 'posix':  # Linux ou macOS
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', caminho_pasta])
+                else:  # Linux
+                    subprocess.run(['xdg-open', caminho_pasta])
+            return True
+        except Exception as e:
+            print(f"Erro ao abrir pasta: {e}")
+            return False
+
+    def cancelar_processamento(self):
+        self.salvar_comentario()  # Salva automaticamente ao fechar
+        if messagebox.askyesno("Confirmar", "Deseja cancelar o processamento?"):
+            if self.popup:
+                self.popup.destroy()
+                self.popup = None
+
+    # 🔥 ADICIONADO: FUNÇÃO GERAR DOCUMENTO SIMILAR AO CAPTURE
+    def gerar_documento(self):
+        """Gera o documento DOCX com as evidências e retorna o caminho do documento"""
+        doc_path = None
+        try:
+            print("🔄 Iniciando geração do documento DOCX...")
+            
+            # 🔥 CORREÇÃO: Criar novo documento em vez de reutilizar o existente
+            if self.template_path and os.path.exists(self.template_path):
                 self.doc = Document(self.template_path)
                 self.using_template = True
+                print(f"✅ Template carregado: {self.template_path}")
             else:
                 self.doc = Document()
                 self.using_template = False
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao carregar template: {str(e)}")
-            self.doc = Document()
-            self.using_template = False
-        
-        self.gerar_docx()
-
-    def gerar_docx(self):
-        # Processa as evidências usando índice em vez de loop for
-        documento_salvo = False  # Flag para controlar se o documento já foi salvo
-        
-        while self.current_index < len(self.prints):
-            caminho_print = self.prints[self.current_index]
+                print("ℹ️ Criando documento vazio (sem template)")
             
-            # Verifica se o arquivo ainda existe
-            if not os.path.exists(caminho_print):
-                # Recarrega a lista se o arquivo não existir mais
-                if not self.recarregar_evidencias():
-                    break
-                if self.current_index >= len(self.prints):
-                    break
-                caminho_print = self.prints[self.current_index]
+            # Adicionar título se não estiver usando template
+            if not self.using_template:
+                titulo = self.doc.add_heading('Evidências Capturadas', 0)
+                titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             
-            resultado = self.mostrar_imagem(caminho_print)
+            # Adicionar data e hora
+            if not self.using_template:
+                data_hora = self.doc.add_paragraph()
+                data_hora.add_run(f"Data e hora da geração: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}").italic = True
+                data_hora.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             
-            if resultado is False:  # Processamento cancelado
-                break
-            elif resultado is None:  # Exclusão ocorreu, não incrementa índice
-                # Recarrega a lista após exclusão
-                self.recarregar_evidencias()
-                continue
-            elif resultado == "ja_salvou":  # Já salvou via "Incluir Todos"
-                documento_salvo = True
-                break  # Sai do loop completamente
-            else:  # Adicionou com sucesso, vai para próxima
-                self.current_index += 1
-        
-        # Só salva se não salvou anteriormente (no incluir_todos)
-        if not documento_salvo:
-            self.salvar_docx()
-
-    def mostrar_imagem(self, caminho_print):
-        popup = tk.Toplevel(self.root)
-        popup.title("Adicionar Comentário à Evidência")
-        popup.geometry("950x750")
-        popup.resizable(False, False)
-
-        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
-        self._apply_styles(popup)
-
-        self.processamento_cancelado = False
-        resultado = None
-
-        # Verifica se o arquivo ainda existe
-        if not os.path.exists(caminho_print):
-            messagebox.showerror("Erro", f"Arquivo não encontrado: {os.path.basename(caminho_print)}")
-            popup.destroy()
-            return None
-
-        img = Image.open(caminho_print)
-        img.thumbnail((850, 550))
-        img_tk = ImageTk.PhotoImage(img)
-        
-        # Frame para imagem
-        img_frame = self._create_styled_frame(popup)
-        img_frame.pack(pady=10)
-        
-        # Para a imagem, manter fundo branco para melhor contraste
-        label_img = tk.Label(img_frame, image=img_tk, bg='white')
-        label_img.image = img_tk
-        label_img.pack()
-
-        # Frame para comentário
-        comment_frame = self._create_styled_frame(popup)
-        comment_frame.pack(pady=5)
-        
-        if self.using_liquid_glass:
-            ttk.Label(comment_frame, text="Comentário (opcional):", 
-                     style="Glass.TLabel").pack()
-        else:
-            tk.Label(comment_frame, text="Comentário (opcional):", 
-                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack()
-        
-        entry = self._create_styled_entry(comment_frame, width=80)
-        entry.pack(pady=5)
-
-        # Mostra informações do arquivo
-        info_frame = self._create_styled_frame(popup)
-        info_frame.pack(pady=5)
-        
-        file_info = f"Arquivo: {os.path.basename(caminho_print)}"
-        timestamp = datetime.fromtimestamp(os.path.getmtime(caminho_print))
-        file_info += f" - {timestamp.strftime('%H:%M:%S')}"
-        
-        if self.using_liquid_glass:
-            ttk.Label(info_frame, text=file_info, font=("Arial", 10),
-                     style="Glass.TLabel").pack()
-        else:
-            tk.Label(info_frame, text=file_info, font=("Arial", 10),
-                    bg='#f5f5f5', fg='#2c3e50').pack()
-
-        def editar_print():
-            self.abrir_editor(caminho_print, popup)
-
-        def adicionar():
-            nonlocal resultado
-            comentario = entry.get()
-            
-            # Atualiza comentário nos metadados
-            nome_arquivo = os.path.basename(caminho_print)
-            for evidencia in self.metadata["evidencias"]:
-                if evidencia["arquivo"] == nome_arquivo:
-                    evidencia["comentario"] = comentario
-                    break
-            self._salvar_metadata()
-            
-            self.doc.add_picture(caminho_print, width=Inches(5))
-            if comentario.strip():
-                self.doc.add_paragraph(comentario)
-            resultado = True
-            popup.destroy()
-
-        def cancelar_processamento():
-            if messagebox.askyesno("Confirmar Cancelamento", 
-                                  "Tem certeza que deseja cancelar o processamento?"):
-                self.processamento_cancelado = True
-                popup.destroy()
-
-        def incluir_todos():
-            if messagebox.askyesno("Confirmar Inclusão", 
-                                  "Deseja incluir todas as evidências restantes sem editar?\nAs evidências serão adicionadas sem comentários."):
-                # Adicionar a evidência atual primeiro
-                comentario = entry.get()
+            # Adicionar evidências
+            for i, print_path in enumerate(self.prints, 1):
+                print(f"📷 Adicionando evidência {i}: {print_path}")
                 
-                # Atualiza comentário nos metadados
-                nome_arquivo = os.path.basename(caminho_print)
-                for evidencia in self.metadata["evidencias"]:
-                    if evidencia["arquivo"] == nome_arquivo:
-                        evidencia["comentario"] = comentario
-                        break
-                self._salvar_metadata()
+                # Adicionar título da evidência
+                self.doc.add_paragraph().add_run(f"Evidência {i}").bold = True
                 
-                self.doc.add_picture(caminho_print, width=Inches(5))
-                if comentario.strip():
-                    self.doc.add_paragraph(comentario)
+                # Adicionar comentário se existir
+                nome_arquivo = os.path.basename(print_path)
+                comentario = self.obter_comentario(nome_arquivo)
+                if comentario:
+                    comentario_para = self.doc.add_paragraph()
+                    comentario_para.add_run(f"Comentário: {comentario}").italic = True
                 
-                # Adicionar todas as evidências restantes
-                for i in range(self.current_index + 1, len(self.prints)):
-                    print_path = self.prints[i]
-                    if os.path.exists(print_path):  # Verifica se o arquivo existe
-                        # Usa comentário salvo nos metadados
-                        nome_arquivo_restante = os.path.basename(print_path)
-                        comentario_restante = self.obter_comentario(nome_arquivo_restante)
-                        
-                        self.doc.add_picture(print_path, width=Inches(5))
-                        if comentario_restante.strip():
-                            self.doc.add_paragraph(comentario_restante)
-                        else:
-                            self.doc.add_paragraph("")
-                
-                # Atualiza o índice para o final
-                self.current_index = len(self.prints)
-             
-                # Salva o documento imediatamente
-                self.salvar_docx()
-                
-                # Fecha o popup após salvar
-                popup.destroy()
-                
-                resultado = "ja_salvou"  # Retorna um valor especial para indicar que já salvou
-            else:
-                resultado = False
-
-        def excluir_print():
-            nonlocal resultado
-            if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir esta evidência?"):
-                # Remove o arquivo
+                # Adicionar imagem
                 try:
-                    nome_arquivo = os.path.basename(caminho_print)
+                    paragraph = self.doc.add_paragraph()
+                    paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                    run = paragraph.add_run()
                     
-                    # Marca como excluída nos metadados em vez de remover fisicamente
-                    for evidencia in self.metadata["evidencias"]:
-                        if evidencia["arquivo"] == nome_arquivo:
-                            evidencia["excluida"] = True
-                            break
-                    
-                    self._salvar_metadata()
-                    
-                    # Remove fisicamente o arquivo
-                    os.remove(caminho_print)
-                    print(f"Arquivo excluído: {caminho_print}")
-                    
-                    resultado = None  # Indica que houve exclusão
-                    popup.destroy()
-                    
-                except Exception as e:
-                    print(f"Erro ao excluir arquivo: {e}")
-                    messagebox.showerror("Erro", f"Não foi possível excluir o arquivo: {e}")
-                    resultado = False
-                    popup.destroy()
-                    return
-            else:
-                resultado = False  # Usuário cancelou a exclusão
-
-        # Frame para botões de ação
-        acoes_frame = self._create_styled_frame(popup)
-        acoes_frame.pack(pady=10)
-
-        self._create_styled_button(acoes_frame, text="✏ Editar Print", 
-                                  command=editar_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(acoes_frame, text="Adicionar e Próximo", 
-                                  command=adicionar, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(acoes_frame, text="🗑️ Excluir Print", 
-                                  command=excluir_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
-
-        # Frame para botões de controle
-        controle_frame = self._create_styled_frame(popup)
-        controle_frame.pack(pady=10)
-
-        self._create_styled_button(controle_frame, text="❌ Cancelar", 
-                                  command=cancelar_processamento, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(controle_frame, text="✅ Incluir Todos", 
-                                  command=incluir_todos, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
-
-        def on_closing():
-            cancelar_processamento()
-
-        popup.protocol("WM_DELETE_WINDOW", on_closing)
-        popup.grab_set()
-        self.root.wait_window(popup)
-        
-        if self.processamento_cancelado:
-            return False
-        
-        return resultado
-
-    def salvar_docx(self):
-        if self.template_path:
-            # Usa o nome do template sem o prefixo "Evidencias_"
-            nome_base = os.path.basename(self.template_path)
-            # Remove a extensão .docx se existir
-            if nome_base.lower().endswith('.docx'):
-                nome_base = nome_base[:-5]
-            nome_arquivo = f"{nome_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        else:
-            # Nome simples com timestamp
-            nome_arquivo = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        
-        caminho_save = os.path.join(self.output_dir, nome_arquivo)
-        
-        try:
-            self.doc.save(caminho_save)
-            self.saved_file_path = caminho_save
-            
-            # Função para abrir a pasta (será chamada após fechar o messagebox)
-            def abrir_posta_apos_mensagem():
-                if os.name == 'nt':
-                    os.startfile(self.output_dir)
-                elif os.name == 'posix':
-                    import subprocess
-                    if sys.platform == 'darwin':
-                        subprocess.Popen(['open', self.output_dir])
+                    # 🔥 CORREÇÃO: Verificar se o arquivo existe antes de adicionar
+                    if os.path.exists(print_path):
+                        run.add_picture(print_path, width=Inches(6.0))
+                        print(f"✅ Imagem {i} adicionada com sucesso")
                     else:
-                        subprocess.Popen(['xdg-open', self.output_dir])
-            
-            # Mostra a mensagem e agenda a abertura da pasta para depois
-            messagebox.showinfo("Concluído", f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}")
-            
-            # Agenda a abertura da pasta para depois de fechar the messagebox
-            self.root.after(100, abrir_posta_apos_mensagem)
+                        print(f"⚠️ Arquivo não encontrado: {print_path}")
+                        self.doc.add_paragraph(f"[Arquivo de imagem não encontrado: {print_path}]")
+                        
+                except Exception as e:
+                    print(f"❌ Erro ao adicionar imagem {print_path}: {e}")
+                    self.doc.add_paragraph(f"[Erro ao carregar imagem: {print_path}]")
                 
+                # Adicionar separador
+                self.doc.add_paragraph("―" * 50).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            
+            # 🔥 CORREÇÃO: USAR NOME DO TEMPLATE PARA O DOCUMENTO
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Obter nome do template sem extensão
+            template_filename = os.path.basename(self.template_path)
+            template_name = os.path.splitext(template_filename)[0]
+            
+            # 🔥 CORREÇÃO: LIMPAR NOME DO TEMPLATE PARA EVITAR PROBLEMAS NO WINDOWS
+            template_name = self._limpar_nome_arquivo(template_name)
+            
+            # Criar nome do documento usando o nome do template
+            doc_filename = f"{template_name}_{timestamp}.docx"
+            doc_path = os.path.join(self.output_dir, doc_filename)
+            
+            # 🔥 CORREÇÃO: Verificar se o diretório existe antes de salvar
+            os.makedirs(os.path.dirname(doc_path), exist_ok=True)
+            
+            # 🔥 CORREÇÃO ADICIONAL: VERIFICAR SE O CAMINHO É VÁLIDO
+            if len(doc_path) > 255:
+                # Se o caminho for muito longo, criar um nome mais curto
+                short_name = f"Evidencias_{timestamp}.docx"
+                doc_path = os.path.join(self.output_dir, short_name)
+                print(f"⚠️ Caminho muito longo, usando nome reduzido: {short_name}")
+            
+            self.doc.save(doc_path)
+            print(f"✅ Documento salvo em: {doc_path}")
+            
+            return doc_path
+            
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar documento: {str(e)}")
+            print(f"❌ Erro ao gerar documento: {e}")
+            # 🔥 CORREÇÃO: Mostrar detalhes do erro
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def _limpar_nome_arquivo(self, nome):
+        """Remove caracteres inválidos para nomes de arquivo no Windows, mantendo caracteres PT-BR"""
+        # Caracteres inválidos no Windows: \ / : * ? " < > |
+        caracteres_invalidos = r'[\\/*?:"<>|]'
+        nome_limpo = re.sub(caracteres_invalidos, '_', nome)
+        
+        # 🔥 CORREÇÃO: Permitir caracteres acentuados e especiais do português
+        # Manter letras acentuadas, ç, ñ, e outros caracteres comuns no PT-BR
+        # Esta regex mantém: letras (incluindo acentuadas), números, espaços, hífens, underscores, pontos e parênteses
+        nome_limpo = re.sub(r'[^\w\s\-\.\(\)áàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]', '', nome_limpo)
+        
+        # 🔥 CORREÇÃO ADICIONAL: LIMITAR TAMANHO DO NOME PARA EVITAR CAMINHOS MUITO LONGOS
+        if len(nome_limpo) > 100:  # Aumentado para 100 caracteres
+            nome_limpo = nome_limpo[:100]
+            
+        return nome_limpo.strip()
 
     # ---------- Editor de prints ----------
     def abrir_editor(self, caminho_print, parent):
