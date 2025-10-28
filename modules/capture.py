@@ -755,7 +755,7 @@ class CaptureModule:
                                 style_type="title").pack(anchor="w", pady=(20, 10))
         
         # Variável para os RadioButtons
-        self.modo_captura_var = tk.StringVar(value="ocultar")  # Valor padrão
+        self.modo_captura_var = tk.StringVar(value="manter")  # Valor padrão
         
         # Frame para os RadioButtons
         modo_frame = self._create_styled_frame(main_frame)
