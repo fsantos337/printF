@@ -1,3 +1,4 @@
+# cleanup.py
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
@@ -101,7 +102,7 @@ class CleanupModule:
         # Configurar botão de excluir selecionados
         if hasattr(self, 'btn_excluir_selecionados'):
             self.btn_excluir_selecionados.configure(
-                bg=self.style_manager.ACCENT_ERROR,
+                bg=self.style_manager.ACCENT_WARNING,
                 fg=text_color,
                 relief="flat"
             )
@@ -433,6 +434,18 @@ class CleanupModule:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_set()
+        
+        # 🔥 NOVO: Configurar protocolo de fechamento para restaurar janela principal
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close_window)
+
+    def _on_close_window(self):
+        """Manipula o fechamento da janela do módulo"""
+        self.hide()
+        # 🔥 NOVO: Restaura a janela principal quando o módulo é fechado
+        try:
+            self.parent.deiconify()
+        except:
+            pass
 
     def _create_interface(self):
         """Cria a interface do módulo"""
@@ -599,6 +612,11 @@ class CleanupModule:
             try:
                 self.root.grab_release()
                 self.root.withdraw()
+                # 🔥 NOVO: Restaura a janela principal ao fechar o módulo
+                try:
+                    self.parent.deiconify()
+                except:
+                    pass
             except:
                 pass
 

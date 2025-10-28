@@ -1,3 +1,4 @@
+# main.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import os
@@ -503,7 +504,7 @@ class PrintFApp:
             ttk.Button(actions, text="❓ Ajuda", style="Glass.TButton",
                       command=self._show_help).pack(side=tk.LEFT, padx=2)
             
-            ttk.Button(actions, text="❌ Sair", style="Error.TButton",
+            ttk.Button(actions, text="❌ Sair", style="Back.TButton",
                       command=self._on_closing).pack(side=tk.LEFT, padx=2)
         else:
             tk.Button(actions, text="⚙️ Configurações",
@@ -557,17 +558,15 @@ class PrintFApp:
         # Abre novo módulo
         self.current_module = self.modules[module_key]
         self.current_module.show()
+        
+        # 🔥 NOVO: Minimiza a janela principal ao abrir módulo
+        self.root.iconify()
 
     def _create_module(self, module_key):
         """Cria módulo dinamicamente"""
         try:
             if module_key == "capture":
-                # 🔥 CORREÇÃO: Garantir que o módulo capture seja importado corretamente
-                try:
-                    from modules.capture import CaptureModule
-                except ImportError:
-                    # Fallback: tentar importar diretamente
-                    from modules.capture import CaptureModule
+                from modules.capture import CaptureModule
                 return CaptureModule(self.root, self.settings)
             elif module_key == "templates":
                 from modules.template_gen import TemplateGeneratorModule
