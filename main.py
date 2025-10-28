@@ -351,35 +351,31 @@ class PrintFApp:
             self.modules_frame.configure(style='TFrame')
         self.modules_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Configuração dos módulos
+        # Configuração dos módulos (SEM HOTKEYS)
         self.modules_config = [
             {
                 "title": "📷 CAPTURAR EVIDÊNCIAS",
                 "key": "capture",
                 "color": "#27ae60",
-                "description": "Capture screenshots com um clique\n• Multi-monitor\n• Timestamp automático\n• Metadados completos",
-                "hotkey": "F8"
+                "description": "Capture screenshots com um clique\n• Multi-monitor\n• Timestamp automático\n• Metadados completos"
             },
             {
                 "title": "📄 GERAR TEMPLATES", 
                 "key": "templates",
                 "color": "#3498db",
-                "description": "Crie documentos em lote\n• Templates personalizados\n• CSV automático\n• Campos dinâmicos",
-                "hotkey": "F9"
+                "description": "Crie documentos em lote\n• Templates personalizados\n• CSV automático\n• Campos dinâmicos"
             },
             {
                 "title": "📋 GERAR DOCUMENTOS",
                 "key": "evidence", 
                 "color": "#f39c12",
-                "description": "Converta evidências em DOCX\n• Navegação avançada\n• Editor completo\n• Comentários",
-                "hotkey": "F10"
+                "description": "Converta evidências em DOCX\n• Navegação avançada\n• Editor completo\n• Comentários"
             },
             {
                 "title": "🗑️ LIMPAR ARQUIVOS",
                 "key": "cleanup",
                 "color": "#e74c3c", 
-                "description": "Gerencie e limpe arquivos\n• Análise detalhada\n• Filtros inteligentes\n• Exclusão segura",
-                "hotkey": "F11"
+                "description": "Gerencie e limpe arquivos\n• Análise detalhada\n• Filtros inteligentes\n• Exclusão segura"
             }
         ]
         
@@ -453,23 +449,6 @@ class PrintFApp:
             btn.bind("<Leave>", lambda e, b=btn, c=module_config["color"]: 
                     b.config(bg=c))
         
-        # Hotkey
-        hotkey_frame = tk.Frame(card_frame, 
-                               bg=self.style_manager.BG_CARD if self.using_liquid_glass else 'white')
-        hotkey_frame.pack(fill=tk.X, padx=8)
-        
-        if self.using_liquid_glass and self.style_manager:
-            hotkey_label = ttk.Label(hotkey_frame, 
-                                    text=f"Atalho: {module_config['hotkey']}",
-                                    style="Accent.TLabel")
-        else:
-            hotkey_label = tk.Label(hotkey_frame, 
-                                    text=f"Atalho: {module_config['hotkey']}",
-                                    font=("Arial", 8, "bold"),
-                                    foreground=module_config["color"],
-                                    bg='white')
-        hotkey_label.pack(side=tk.RIGHT)
-        
         # Descrição com wrap length dinâmico
         if self.using_liquid_glass and self.style_manager:
             desc_label = ttk.Label(card_frame, 
@@ -504,11 +483,11 @@ class PrintFApp:
         
         if self.using_liquid_glass and self.style_manager:
             self.footer_text = ttk.Label(sys_info, 
-                                  text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                                  text=f"©PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                                   style="Subtitle.TLabel")
         else:
             self.footer_text = tk.Label(sys_info, 
-                                  text=f"© 2024 PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                                  text=f"©PrintF Unificado • {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                                   font=("Arial", 8),
                                   foreground="gray",
                                   bg='#f5f5f5')

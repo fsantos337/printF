@@ -205,114 +205,58 @@ class DocumentProcessor:
         return cleaned or "caso_teste"
 
     @staticmethod
-    def adjust_template_fields(doc: Document, field_mapping: Dict[str, str]) -> None:
-        """Ajusta os campos do template conforme o mapeamento fornecido"""
-        for paragraph in doc.paragraphs:
-            DocumentProcessor._adjust_paragraph_fields(paragraph, field_mapping)
-
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        DocumentProcessor._adjust_paragraph_fields(paragraph, field_mapping)
-
-    @staticmethod
-    def _adjust_paragraph_fields(paragraph, field_mapping: Dict[str, str]) -> None:
-        """Ajusta os campos em um parágrafo específico"""
-        texto_original = paragraph.text.strip()
-        if ':' in texto_original:
-            field_key = texto_original.split(':', 1)[0].strip()
-            if field_key in field_mapping:
-                nova_label = field_mapping[field_key]
-                
-                # CORREÇÃO: Substitui apenas o texto antes dos dois pontos mantendo a formatação
-                for run in paragraph.runs:
-                    if field_key in run.text:
-                        # Substitui o campo antigo pelo novo mantendo a formatação
-                        run.text = run.text.replace(field_key, nova_label)
-                        # Garante que o campo fique em negrito
-                        run.bold = True
-                        break
-
-    @staticmethod
-    def fill_template(doc: Document, data: Dict[str, str], field_mapping: Dict[str, str], 
+    def fill_template(doc: Document, data: Dict[str, str], field_config: List[Dict], 
                      colunas_selecionadas: List[str] = None, dados_csv: Dict[str, str] = None) -> None:
-        """Preenche o template com os dados fornecidos"""
-        # Primeiro ajusta os campos do template de acordo com as labels do JSON
-        DocumentProcessor.adjust_template_fields(doc, field_mapping)
+        """Preenche o template com os dados fornecidos - AGORA ADICIONA APÓS CONTEÚDO EXISTENTE"""
         
-        # Cria mapeamento label -> valor
-        label_to_value = {}
-        for original_key, label in field_mapping.items():
-            label_to_value[label] = data.get(original_key, '')
+        # Adicionar quebra de página antes dos novos dados
+        doc.add_page_break()
         
-        label_to_value['Caso de Teste'] = data.get('Caso de Teste', '')
+        # Adicionar título da seção de dados
+        titulo = doc.add_heading('Dados do Teste', level=1)
+        for run in titulo.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(16)
+            run.bold = True
+            run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Preenche parágrafos
-        for paragraph in doc.paragraphs:
-            DocumentProcessor._fill_paragraph(paragraph, label_to_value)
+        # Adicionar campos da configuração
+        for campo_info in field_config:
+            key = campo_info['key']
+            label = campo_info['label'].rstrip(':')
+            value = data.get(key, '')
+            
+            # Adicionar parágrafo com campo e valor
+            campo_para = doc.add_paragraph()
+            campo_run = campo_para.add_run(f"{label}: ")
+            campo_run.bold = True
+            campo_run.font.name = 'Arial'
+            campo_run.font.size = Pt(12)
+            campo_run.font.color.rgb = RGBColor(0, 0, 0)
+            
+            valor_run = campo_para.add_run(value)
+            valor_run.bold = False
+            valor_run.font.name = 'Arial'
+            valor_run.font.size = Pt(12)
+            valor_run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Preenche tabelas
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        DocumentProcessor._fill_paragraph(paragraph, label_to_value)
+        # Adicionar caso de teste
+        caso_para = doc.add_paragraph()
+        caso_run = caso_para.add_run("Caso de Teste: ")
+        caso_run.bold = True
+        caso_run.font.name = 'Arial'
+        caso_run.font.size = Pt(12)
+        caso_run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Adiciona tabela com dados do CSV se houver colunas selecionadas
+        nome_run = caso_para.add_run(data.get('Caso de Teste', ''))
+        nome_run.bold = False
+        nome_run.font.name = 'Arial'
+        nome_run.font.size = Pt(12)
+        nome_run.font.color.rgb = RGBColor(0, 0, 0)
+        
+        # Adicionar tabela com dados do CSV se houver colunas selecionadas
         if colunas_selecionadas and dados_csv:
             DocumentProcessor._adicionar_tabela_csv(doc, colunas_selecionadas, dados_csv)
-
-    @staticmethod
-    def _fill_paragraph(paragraph, label_to_value: Dict[str, str]) -> None:
-        """Preenche um parágrafo específico com os dados - campo em negrito, valor normal"""
-        texto = paragraph.text.strip()
-        if ':' in texto:
-            field_name = texto.split(':', 1)[0].strip()
-            if field_name in label_to_value:
-                valor = label_to_value[field_name]
-                
-                # CORREÇÃO: Busca pela formatação original do campo no template
-                formato_original = None
-                if paragraph.runs:
-                    # Tenta encontrar um run que contenha o campo para pegar a formatação
-                    for run in paragraph.runs:
-                        if field_name in run.text:
-                            formato_original = {
-                                'font_name': run.font.name,
-                                'font_size': run.font.size,
-                                'color': run.font.color.rgb if hasattr(run.font, 'color') and run.font.color else None
-                            }
-                            break
-                
-                # Se não encontrou formatação, usa padrão do primeiro run
-                if not formato_original and paragraph.runs:
-                    primeiro_run = paragraph.runs[0]
-                    formato_original = {
-                        'font_name': primeiro_run.font.name,
-                        'font_size': primeiro_run.font.size,
-                        'color': primeiro_run.font.color.rgb if hasattr(primeiro_run.font, 'color') and primeiro_run.font.color else None
-                    }
-                
-                # Limpa todo o conteúdo do parágrafo
-                for run in paragraph.runs:
-                    run.text = ""
-                
-                # Adiciona o CAMPO em NEGRITO
-                campo_run = paragraph.add_run(f"{field_name}: ")
-                campo_run.bold = True
-                
-                # Adiciona o VALOR SEM NEGRITO
-                valor_run = paragraph.add_run(valor)
-                valor_run.bold = False
-                
-                # Aplica a formatação original se encontrada
-                if formato_original:
-                    for run in paragraph.runs:
-                        run.font.name = formato_original['font_name']
-                        run.font.size = formato_original['font_size']
-                        if formato_original['color']:
-                            run.font.color.rgb = formato_original['color']
 
     @staticmethod
     def _adicionar_tabela_csv(doc: Document, colunas_selecionadas: List[str], dados_csv: Dict[str, str]) -> None:
@@ -320,26 +264,26 @@ class DocumentProcessor:
         if not colunas_selecionadas or not dados_csv:
             return
         
-        # Adiciona um espaço antes da tabela
+        # Adicionar um espaço antes da tabela
         doc.add_paragraph()
         
-        # Adiciona título da tabela - ARIAL 16 NEGRITO
+        # Adicionar título da tabela
         titulo = doc.add_heading('Dados Adicionais do Caso de Teste', level=2)
         for run in titulo.runs:
             run.font.name = 'Arial'
-            run.font.size = Pt(16)
+            run.font.size = Pt(14)
             run.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Cria tabela sem estilo para remover cores de fundo
+        # Criar tabela
         tabela = doc.add_table(rows=len(colunas_selecionadas), cols=2)
         
-        # Adicionar dados diretamente sem cabeçalho
+        # Adicionar dados
         for i, coluna in enumerate(colunas_selecionadas):
             if coluna in dados_csv:
                 row_cells = tabela.rows[i].cells
                 
-                # Primeira coluna: nome do campo em Arial 16 NEGRITO
+                # Primeira coluna: nome do campo em negrito
                 row_cells[0].text = coluna
                 for paragraph in row_cells[0].paragraphs:
                     for run in paragraph.runs:
@@ -348,7 +292,7 @@ class DocumentProcessor:
                         run.bold = True
                         run.font.color.rgb = RGBColor(0, 0, 0)
                 
-                # Segunda coluna: valor em Arial 16 SEM NEGRITO
+                # Segunda coluna: valor sem negrito
                 row_cells[1].text = str(dados_csv[coluna])
                 for paragraph in row_cells[1].paragraphs:
                     for run in paragraph.runs:
@@ -367,8 +311,6 @@ class DocumentProcessor:
                                           r'<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
                                           r'</w:tcBorders>')
                     tcPr.append(tcBorders)
-        # Adiciona um espaço depois da tabela
-        doc.add_paragraph()
 
 
 class DefaultDocumentGenerator:
@@ -378,7 +320,7 @@ class DefaultDocumentGenerator:
     def create_default_document(data: Dict[str, str], field_config: List[Dict], 
                                colunas_selecionadas: List[str] = None, 
                                dados_csv: Dict[str, str] = None) -> Document:
-        """Cria um documento padrão com estrutura organizada"""
+        """Cria um documento padrão com estrutura organizada - AGORA DINÂMICO BASEADO NA CONFIGURAÇÃO"""
         doc = Document()
         
         # Configurar estilos de fonte padrão
@@ -386,78 +328,59 @@ class DefaultDocumentGenerator:
         font = style.font
         font.name = 'Arial'
         font.size = Pt(12)
-        font.color.rgb = RGBColor(0, 0, 0) # Preto
+        font.color.rgb = RGBColor(0, 0, 0)
         
-        # Título do documento - Arial 20, negrito
+        # Título do documento
         title = doc.add_heading('Evidências de Teste - Documentação', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in title.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(16)
             run.bold = True
-            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            run.font.color.rgb = RGBColor(0, 0, 0)
         
         # Seção de informações do teste
         info_heading = doc.add_heading('Informações do Teste', level=1)
         for run in info_heading.runs:
             run.font.name = 'Arial'
-            run.font.size = Pt(12)
+            run.font.size = Pt(14)
             run.bold = True
-            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Tabela para dados organizados
-        table = doc.add_table(rows=len(field_config) + 1, cols=2)
-        table.style = 'Light Grid Accent 1'
-        
-        # Cabeçalho da tabela
-        header_cells = table.rows[0].cells
-        header_cells[0].text = "Campo"
-        header_cells[1].text = "Valor"
-        
-        # Formatar cabeçalho
-        for cell in header_cells:
-            for paragraph in cell.paragraphs:
-                paragraph.style = doc.styles['Normal']
-                for run in paragraph.runs:
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(12)
-                    run.bold = True
-                    run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-        
-        # Preencher dados da configuração
-        for i, campo_info in enumerate(field_config, 1):
+        # Adicionar campos dinamicamente baseados na configuração
+        for campo_info in field_config:
             key = campo_info['key']
             label = campo_info['label'].rstrip(':')
+            value = data.get(key, 'Não informado')
             
-            row_cells = table.rows[i].cells
-            row_cells[0].text = label
-            row_cells[1].text = data.get(key, 'Não informado')
+            campo_para = doc.add_paragraph()
+            label_run = campo_para.add_run(f"{label}: ")
+            label_run.bold = True
+            label_run.font.name = 'Arial'
+            label_run.font.size = Pt(12)
+            label_run.font.color.rgb = RGBColor(0, 0, 0)
             
-            # Aplicar estilo Arial 12 sem negrito
-            for cell in row_cells:
-                for paragraph in cell.paragraphs:
-                    paragraph.style = doc.styles['Normal']
-                    for run in paragraph.runs:
-                        run.font.name = 'Arial'
-                        run.font.size = Pt(12)
-                        run.bold = True
-                        run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            value_run = campo_para.add_run(value)
+            value_run.bold = False
+            value_run.font.name = 'Arial'
+            value_run.font.size = Pt(12)
+            value_run.font.color.rgb = RGBColor(0, 0, 0)
         
         doc.add_paragraph()
         
-        # Seção do caso de teste - ARIAL 16 NEGRITO para o label e 16 normal para o valor
-        caso_teste_para = doc.add_paragraph()
-        caso_run = caso_teste_para.add_run('Nome do Caso de Teste: ')
+        # Seção do caso de teste
+        caso_para = doc.add_paragraph()
+        caso_run = caso_para.add_run('Nome do Caso de Teste: ')
         caso_run.bold = True
         caso_run.font.name = 'Arial'
         caso_run.font.size = Pt(12)
-        caso_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+        caso_run.font.color.rgb = RGBColor(0, 0, 0)
         
-        nome_run = caso_teste_para.add_run(data.get('Caso de Teste', 'Não informado'))
+        nome_run = caso_para.add_run(data.get('Caso de Teste', 'Não informado'))
         nome_run.font.name = 'Arial'
         nome_run.font.size = Pt(12)
-        nome_run.bold = False  # SEM NEGRITO para o valor
-        nome_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+        nome_run.bold = False
+        nome_run.font.color.rgb = RGBColor(0, 0, 0)
         
         # Adicionar tabela com dados do CSV se houver colunas selecionadas
         if colunas_selecionadas and dados_csv:
@@ -465,19 +388,26 @@ class DefaultDocumentGenerator:
         
         doc.add_paragraph()
         
+        # Seções fixas adicionais (mantidas do original)
+        DefaultDocumentGenerator._add_standard_sections(doc)
+        
+        return doc
+
+    @staticmethod
+    def _add_standard_sections(doc: Document) -> None:
+        """Adiciona seções padrão ao documento"""
         # Seção de descrição
         desc_heading = doc.add_heading('Descrição do Teste', level=2)
         for run in desc_heading.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
             run.bold = True
-            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            run.font.color.rgb = RGBColor(0, 0, 0)
             
         desc_para = doc.add_paragraph(
             "Esta seção deve conter a descrição detalhada do caso de teste executado, "
             "incluindo pré-condições, passos de execução e resultados esperados."
         )
-        desc_para.style = doc.styles['Normal']
         
         # Seção de evidências
         evid_heading = doc.add_heading('Evidências Coletadas', level=2)
@@ -485,12 +415,11 @@ class DefaultDocumentGenerator:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
             run.bold = True
-            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            run.font.color.rgb = RGBColor(0, 0, 0)
             
         evid_para = doc.add_paragraph("Registro das evidências coletadas durante a execução do teste:")
-        evid_para.style = doc.styles['Normal']
         
-        # Tabela para evidências - CORRIGIDO: 6 linhas (cabeçalho + 5 etapas)
+        # Tabela para evidências
         evidencias_table = doc.add_table(rows=6, cols=3)
         evidencias_table.style = 'Light Grid Accent 1'
         
@@ -500,14 +429,13 @@ class DefaultDocumentGenerator:
         for col, header in enumerate(headers):
             evidencias_header[col].text = header
             for paragraph in evidencias_header[col].paragraphs:
-                paragraph.style = doc.styles['Normal']
                 for run in paragraph.runs:
                     run.font.name = 'Arial'
                     run.font.size = Pt(12)
                     run.bold = True
-                    run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+                    run.font.color.rgb = RGBColor(0, 0, 0)
         
-        # Linhas para preenchimento - CORRIGIDO: usar índices de 1 a 5
+        # Linhas para preenchimento
         etapas = [
             'Pré-condições',
             'Configuração Inicial', 
@@ -517,21 +445,19 @@ class DefaultDocumentGenerator:
         ]
         
         for row, etapa in enumerate(etapas, 1):
-            if row < len(evidencias_table.rows):  # Verificação de segurança
+            if row < len(evidencias_table.rows):
                 row_cells = evidencias_table.rows[row].cells
                 row_cells[0].text = etapa
                 row_cells[1].text = "[Descreva a evidência coletada]"
                 row_cells[2].text = "[Resultado obtido - OK/Erro]"
                 
-                # Aplicar estilo Arial 12 sem negrito
                 for cell in row_cells:
                     for paragraph in cell.paragraphs:
-                        paragraph.style = doc.styles['Normal']
                         for run in paragraph.runs:
                             run.font.name = 'Arial'
                             run.font.size = Pt(12)
-                            run.bold = True
-                            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+                            run.bold = False
+                            run.font.color.rgb = RGBColor(0, 0, 0)
         
         doc.add_paragraph()
         
@@ -541,10 +467,9 @@ class DefaultDocumentGenerator:
             run.font.name = 'Arial'
             run.font.size = Pt(12)
             run.bold = True
-            run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            run.font.color.rgb = RGBColor(0, 0, 0)
             
         obs_para = doc.add_paragraph("Adicione observações relevantes sobre a execução do teste:")
-        obs_para.style = doc.styles['Normal']
         
         # Área para observações
         obs_list_para = doc.add_paragraph()
@@ -552,7 +477,7 @@ class DefaultDocumentGenerator:
         obs_title_run.bold = True
         obs_title_run.font.name = 'Arial'
         obs_title_run.font.size = Pt(12)
-        obs_title_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+        obs_title_run.font.color.rgb = RGBColor(0, 0, 0)
         
         obs_items = [
             "• [Insira observações sobre problemas encontrados]\n",
@@ -565,10 +490,8 @@ class DefaultDocumentGenerator:
             item_run = obs_list_para.add_run(item)
             item_run.font.name = 'Arial'
             item_run.font.size = Pt(12)
-            item_run.bold = True
-            item_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-        
-        return doc
+            item_run.bold = False
+            item_run.font.color.rgb = RGBColor(0, 0, 0)
 
 
 class TemplateGeneratorModule:
@@ -587,7 +510,7 @@ class TemplateGeneratorModule:
         self.campos_config = self.config_manager.load_config()
         self.campos_entries: Dict[str, tk.Entry] = {}
         
-        # Novos atributos para controle das colunas do CSV (igual ao geradorTemplates)
+        # Controle das colunas do CSV
         self.colunas_selecionadas: List[str] = []
         self.df_csv: Optional[pd.DataFrame] = None
         self.csv_colunas: List[str] = []
@@ -652,11 +575,12 @@ class TemplateGeneratorModule:
             row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
 
     def _create_dynamic_fields_section(self, parent) -> None:
-        """Cria os campos dinâmicos baseados na configuração"""
+        """Cria os campos dinâmicos baseados na configuração - AGORA TOTALMENTE DINÂMICO"""
         ttk.Label(parent, text="Dados dos Testes:", 
                  font=("Arial", 12, "bold")).grid(
                      row=2, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
 
+        # Criar campos dinamicamente baseados na configuração
         for i, campo_info in enumerate(self.campos_config):
             self._create_field_row(parent, campo_info, i)
 
@@ -689,7 +613,7 @@ class TemplateGeneratorModule:
         self.csv_entry = self._create_file_field(parent, "CSV:*", next_row + 2, self.selecionar_csv)
         self.template_entry = self._create_file_field(parent, "Template (Opcional):", next_row + 3, self.selecionar_template)
         
-        # Nova opção para diretório automático
+        # Opção para diretório automático
         directory_frame = ttk.Frame(parent)
         directory_frame.grid(row=next_row + 4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2)
         
@@ -816,48 +740,28 @@ class TemplateGeneratorModule:
             font = style.font
             font.name = 'Arial'
             font.size = Pt(12)
-            font.color.rgb = RGBColor(0, 0, 0) # Preto
+            font.color.rgb = RGBColor(0, 0, 0)
             
-            # Título principal - Arial 20, negrito
+            # Título principal
             main_title = doc.add_heading('Evidências de Teste', level=1)
             for run in main_title.runs:
                 run.font.name = 'Arial'
                 run.font.size = Pt(16)
                 run.bold = True
-                run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+                run.font.color.rgb = RGBColor(0, 0, 0)
             
             doc.add_paragraph()
             
-            # Adicionar campos da configuração
-            for campo_info in self.campos_config:
-                campo_para = doc.add_paragraph()
-                label_run = campo_para.add_run(f"{campo_info['label']} ")
-                label_run.font.name = 'Arial'
-                label_run.font.size = Pt(12)
-                label_run.bold = True
-                label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-                
-                value_run = campo_para.add_run("[VALOR]")
-                value_run.font.name = 'Arial'
-                value_run.font.size = Pt(12)
-                value_run.bold = False
-                value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            # Conteúdo de exemplo do template original
+            content_para = doc.add_paragraph("Este é o template padrão para documentação de testes. ")
+            content_para.add_run("Os dados específicos de cada teste serão adicionados após esta seção.").bold = True
             
             doc.add_paragraph()
-            
-            # Seção para caso de teste
-            caso_para = doc.add_paragraph()
-            caso_label_run = caso_para.add_run("Caso de Teste: ")
-            caso_label_run.font.name = 'Arial'
-            caso_label_run.font.size = Pt(12)
-            caso_label_run.bold = True
-            caso_label_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
-            
-            caso_value_run = caso_para.add_run("[NOME_DO_CASO]")
-            caso_value_run.font.name = 'Arial'
-            caso_value_run.font.size = Pt(12)
-            caso_value_run.bold = False
-            caso_value_run.font.color.rgb = RGBColor(0, 0, 0) # Preto
+            doc.add_paragraph("Instruções:")
+            instructions = doc.add_paragraph()
+            instructions.add_run("• Preencha os dados necessários no aplicativo\n")
+            instructions.add_run("• Selecione o arquivo CSV com os casos de teste\n")
+            instructions.add_run("• Os dados serão automaticamente inseridos após este conteúdo")
             
             doc.save('template_evidencias.docx')
             return True
@@ -1122,10 +1026,6 @@ class TemplateGeneratorModule:
         erros = []
         arquivos_gerados = set()
         
-        # Criar mapeamento de campos
-        field_mapping = {campo['key']: campo['label'].rstrip(':').strip() 
-                        for campo in self.campos_config}
-        
         for i, caso_teste in enumerate(casos_teste, 1):
             try:
                 self.progress['value'] = i
@@ -1135,8 +1035,7 @@ class TemplateGeneratorModule:
                 dados_csv = self._obter_dados_csv_por_nome(caso_teste)
                 
                 if self._generate_single_document(caso_teste, dados_fixos, template_path, 
-                                                output_folder, field_mapping, 
-                                                arquivos_gerados, use_default_template,
+                                                output_folder, arquivos_gerados, use_default_template,
                                                 dados_csv):
                     sucessos += 1
                 else:
@@ -1154,10 +1053,9 @@ class TemplateGeneratorModule:
 
     def _generate_single_document(self, caso_teste: str, dados_fixos: Dict[str, str], 
                                 template_path: str, output_folder: str, 
-                                field_mapping: Dict[str, str],
                                 arquivos_gerados: set, use_default_template: bool,
                                 dados_csv: Dict[str, str] = None) -> bool:
-        """Gera um único documento - CORRIGIDO: tratamento de erro melhorado"""
+        """Gera um único documento - AGORA PRESERVA TEMPLATE ORIGINAL E ADICIONA DADOS APÓS"""
         try:
             dados_completos = dados_fixos.copy()
             dados_completos['Caso de Teste'] = caso_teste
@@ -1166,7 +1064,8 @@ class TemplateGeneratorModule:
             if not use_default_template:
                 try:
                     doc = Document(template_path)
-                    self.doc_processor.fill_template(doc, dados_completos, field_mapping,
+                    # AGORA: Adiciona dados APÓS o conteúdo do template original
+                    self.doc_processor.fill_template(doc, dados_completos, self.campos_config,
                                                    self.colunas_selecionadas, dados_csv)
                 except Exception as e:
                     self.log(f"⚠️ Erro ao usar template personalizado: {e}. Usando template padrão...")
