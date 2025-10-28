@@ -20,6 +20,7 @@ import ctypes
 from ctypes import wintypes, byref
 import tkinter.font as tkfont
 import shutil
+import subprocess  # 🔥 ADICIONADO PARA ABRIR PASTA
 
 # 🔥 CONTROLE AUTOMÁTICO DA BARRA DE TAREFAS
 try:
@@ -644,7 +645,7 @@ class CaptureModule:
         template_name = self._limpar_nome_arquivo(template_name)
         
         # 🔥 CRIAR NOME DA PASTA COM NOME DO DOCX + TIMESTAMP
-        nome_pasta = f"Evidencias_{template_name}_{timestamp}"
+        nome_pasta = f"{template_name}_{timestamp}"
         
         # 🔥 CRIAR PASTA NO MESMO DIRETÓRIO DO TEMPLATE
         template_dir = os.path.dirname(self.template_path)
@@ -1506,14 +1507,46 @@ class CaptureModule:
         # Gerar documento
         try:
             doc_path = self.gerar_documento()
-            messagebox.showinfo("Sucesso", f"Documento gerado com sucesso em:\n{doc_path}")
+            
+            # 🔥 ADICIONADO: ABRIR PASTA APÓS GERAR DOCUMENTO
+            pasta_para_abrir = os.path.dirname(doc_path)
+            
+            resposta = messagebox.askyesno(
+                "Sucesso", 
+                f"Documento gerado com sucesso em:\n{doc_path}\n\nDeseja abrir a pasta onde o documento foi salvo?",
+                parent=self.popup
+            )
+            
+            if resposta:
+                if not self._abrir_pasta(pasta_para_abrir):
+                    messagebox.showinfo(
+                        "Abrir Pasta", 
+                        f"Pasta do documento:\n{pasta_para_abrir}",
+                        parent=self.popup
+                    )
+                    
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao gerar documento: {e}")
+            messagebox.showerror("Erro", f"Erro ao gerar documento: {e}", parent=self.popup)
         
         # Fechar janela de navegação
         if self.popup and self.popup.winfo_exists():
             self.popup.destroy()
             self.popup = None
+
+    def _abrir_pasta(self, caminho_pasta):
+        """Abre a pasta no explorador de arquivos do sistema"""
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(caminho_pasta)
+            elif os.name == 'posix':  # Linux ou macOS
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', caminho_pasta])
+                else:  # Linux
+                    subprocess.run(['xdg-open', caminho_pasta])
+            return True
+        except Exception as e:
+            print(f"Erro ao abrir pasta: {e}")
+            return False
 
     def cancelar_processamento(self):
         self.salvar_comentario()  # Salva automaticamente ao fechar
