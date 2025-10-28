@@ -305,12 +305,43 @@ class PrintFApp:
         title_frame = ttk.Frame(header_frame)
         title_frame.pack(fill=tk.X)
         
-        # Ícone do aplicativo
-        if self.using_liquid_glass and self.style_manager:
-            icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), style="Glass.TLabel")
-        else:
-            icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), background='#f5f5f5')
-        icon_label.pack(side=tk.LEFT, padx=(0, 10))
+        # 🔥 NOVO: Verificar e carregar logo customizada
+        logo_loaded = False
+        custom_logo_path = os.path.join(os.path.dirname(__file__), "CUSTOM-LOGO.PNG")
+        
+        if os.path.exists(custom_logo_path):
+            try:
+                from PIL import Image, ImageTk
+                
+                # Carregar e redimensionar imagem
+                pil_image = Image.open(custom_logo_path)
+                # Redimensionar para 32x32 mantendo proporção
+                pil_image.thumbnail((100,100), Image.Resampling.LANCZOS)
+                
+                # Converter para PhotoImage do Tkinter
+                self.custom_logo = ImageTk.PhotoImage(pil_image)
+                
+                # Criar label com imagem
+                if self.using_liquid_glass and self.style_manager:
+                    icon_label = ttk.Label(title_frame, image=self.custom_logo, style="Glass.TLabel")
+                else:
+                    icon_label = ttk.Label(title_frame, image=self.custom_logo, background='#f5f5f5')
+                
+                icon_label.pack(side=tk.LEFT, padx=(0, 10))
+                logo_loaded = True
+                print(f"✅ Logo customizada carregada: {custom_logo_path}")
+                
+            except Exception as e:
+                print(f"⚠️ Erro ao carregar logo customizada: {e}")
+                logo_loaded = False
+        
+        # Fallback para emoji se logo customizada não carregar
+        if not logo_loaded:
+            if self.using_liquid_glass and self.style_manager:
+                icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), style="Glass.TLabel")
+            else:
+                icon_label = ttk.Label(title_frame, text="🖨️", font=("Arial", 24), background='#f5f5f5')
+            icon_label.pack(side=tk.LEFT, padx=(0, 10))
         
         # Textos
         if self.using_liquid_glass and self.style_manager:
