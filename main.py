@@ -82,7 +82,6 @@ class PrintFApp:
             from modules.styles import LiquidGlassStyle
             
             # Verificar se o tema está habilitado nas configurações
-            # FORÇAR liquid_glass inicialmente para teste
             theme_to_use = self.settings.get('theme', 'liquid_glass')
             if theme_to_use == 'liquid_glass':
                 # Aplicar estilo Liquid Glass
@@ -570,7 +569,7 @@ class PrintFApp:
         return color
 
     def open_module(self, module_key):
-        """Abre um módulo específico - CORREÇÃO PARA EVIDENCE"""
+        """Abre um módulo específico - CORREÇÃO COMPLETA E MELHORADA"""
         # Fecha módulo atual se existir
         if self.current_module:
             self.current_module.hide()
@@ -589,29 +588,56 @@ class PrintFApp:
         # Abre novo módulo
         self.current_module = self.modules[module_key]
         
-        # 🔥 CORREÇÃO ESPECÍFICA PARA EVIDENCE_MODULE
-        if module_key == "evidence":
-            try:
-                self.current_module.show()
-            except Exception as e:
-                print(f"❌ Erro específico ao abrir evidence: {e}")
-                # Tentar recriar o módulo
-                try:
-                    from modules.evidence_gen import EvidenceGeneratorModule
-                    self.modules[module_key] = EvidenceGeneratorModule(self.root, self.settings)
-                    self.current_module = self.modules[module_key]
-                    self.current_module.show()
-                except Exception as e2:
-                    messagebox.showerror("Erro", f"Falha crítica ao abrir Gerador de Documentos: {e2}")
-                    return
-        else:
+        # 🔥 CORREÇÃO CRÍTICA: Sequência correta para evitar ambos minimizados
+        try:
+            # Primeiro garante que o módulo está criado e configurado
             self.current_module.show()
-        
-        # 🔥 NOVO: Minimiza a janela principal ao abrir módulo
-        self.root.iconify()
+            
+            # 🔥 CORREÇÃO: Aguardar um pouco mais para garantir que o módulo está totalmente renderizado
+            self.root.after(300, self._minimize_main_and_focus_module)
+            
+        except Exception as e:
+            print(f"❌ Erro ao abrir módulo {module_key}: {e}")
+            # Tentar recriar o módulo
+            try:
+                module = self._create_module(module_key)
+                if module:
+                    self.modules[module_key] = module
+                    self.current_module = module
+                    self.current_module.show()
+                    self.root.after(300, self._minimize_main_and_focus_module)
+                else:
+                    messagebox.showerror("Erro", f"Falha crítica ao abrir {module_key}")
+                    return
+            except Exception as e2:
+                messagebox.showerror("Erro", f"Falha crítica ao abrir {module_key}: {e2}")
+                return
+
+    def _minimize_main_and_focus_module(self):
+        """Minimiza a main e foca no módulo - CORREÇÃO SEPARADA"""
+        try:
+            # Primeiro garante que o módulo está em primeiro plano
+            if self.current_module and hasattr(self.current_module, 'root'):
+                self.current_module.root.lift()
+                self.current_module.root.focus_force()
+                self.current_module.root.attributes('-topmost', True)
+                
+                # 🔥 CORREÇÃO: Aguardar um pouco antes de minimizar a main
+                self.root.after(100, lambda: self.root.iconify())
+                
+                # Remover o topmost após um breve período
+                self.current_module.root.after(1000, lambda: self.current_module.root.attributes('-topmost', False))
+                
+        except Exception as e:
+            print(f"⚠️ Erro ao minimizar main e focar módulo: {e}")
+            # Fallback: apenas minimiza a main
+            try:
+                self.root.iconify()
+            except:
+                pass
 
     def _create_module(self, module_key):
-        """Cria módulo dinamicamente - CORREÇÃO PARA EVIDENCE"""
+        """Cria módulo dinamicamente"""
         try:
             if module_key == "capture":
                 from modules.capture import CaptureModule
