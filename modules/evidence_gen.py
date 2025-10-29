@@ -234,27 +234,60 @@ class EvidenceGeneratorModule:
         return ""
     
     def show(self):
-        """Mostra a interface do módulo"""
+        """Mostra a interface do módulo - CORREÇÃO PARA EVITAR MINIMIZAÇÃO"""
         if not self.root:
             self._create_interface()
-        else:
-            self.root.deiconify()
-            self.root.lift()
-            self.root.focus_set()
+        
+        # 🔥 CORREÇÃO: Garantir que a janela fique visível corretamente
+        self.root.deiconify()  # Garante que a janela não está minimizada
+        self.root.lift()       # Traz para frente
+        self.root.focus_set()  # Define o foco
+        
+        # 🔥 CORREÇÃO ADICIONAL: Remover qualquer atributo que force minimização
+        try:
+            self.root.attributes('-zoomed', False)  # Remove estado maximizado se existir
+            self.root.state('normal')               # Garante estado normal
+        except:
+            pass
+
+    def _center_on_parent(self):
+        """Centraliza a janela do módulo em relação à janela principal"""
+        if self.parent:
+            try:
+                self.root.update_idletasks()
+                parent_x = self.parent.winfo_x()
+                parent_y = self.parent.winfo_y()
+                parent_width = self.parent.winfo_width()
+                parent_height = self.parent.winfo_height()
+                
+                width = 500
+                height = 300
+                
+                x = parent_x + (parent_width - width) // 2
+                y = parent_y + (parent_height - height) // 2
+                
+                self.root.geometry(f"{width}x{height}+{x}+{y}")
+            except Exception as e:
+                print(f"⚠️ Erro ao centralizar janela: {e}")
+                # Fallback: centralizar na tela
+                self.root.eval('tk::PlaceWindow . center')
 
     def _create_interface(self):
-        """Cria a interface do módulo"""
+        """Cria a interface do módulo - CORREÇÃO PARA EVITAR PROBLEMAS DE FOCUS"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Gerador de Documentos de Evidências")
         self.root.geometry("500x300")
         self.root.resizable(False, False)
         
-        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
+        # 🔥 CORREÇÃO: Configurar para não minimizar automaticamente
+        self.root.transient(self.parent)  # Define como janela filha
+        self.root.grab_set()              # Mantém o foco
+        
+        # Aplicar estilos
         self._apply_styles(self.root)
         
         # Centralizar na tela principal
-        self.root.transient(self.parent)
-        self.root.grab_set()
+        self._center_on_parent()
         
         main_frame = self._create_styled_frame(self.root, padding=30)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -483,14 +516,11 @@ class EvidenceGeneratorModule:
                                    f"Formatos suportados: {', '.join(self.supported_extensions)}")
                 return
             
-            # CORREÇÃO: Salvar template_path ANTES de destruir a janela
             self.template_path = self.template_var.get()
             self.output_dir = self.dir_var.get()
             self.evidence_dir = self.dir_var.get()
             self.prints = image_files
             self.current_index = 0
-            
-            print(f"DEBUG na janela de config - template_path: {self.template_path}")
             
             processar[0] = True
             config_window.destroy()
@@ -762,41 +792,15 @@ class EvidenceGeneratorModule:
         return resultado
 
     def salvar_docx(self):
-        # Usa exatamente o mesmo nome do arquivo template selecionado
-        if self.template_path:
+        # CORREÇÃO: Verifica se template_path existe e não é None
+        if self.template_path and os.path.exists(self.template_path):
+            # Usa exatamente o mesmo nome do template
             nome_arquivo = os.path.basename(self.template_path)
         else:
             # Nome simples com timestamp se não houver template
             nome_arquivo = f"Evidencias_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
         
         caminho_save = os.path.join(self.output_dir, nome_arquivo)
-        
-        # Verifica se o caminho é muito longo (limite do Windows: 260 caracteres)
-        if len(caminho_save) > 250:
-            # Se for muito longo, usa um nome mais curto mantendo a extensão
-            nome_base_original = os.path.splitext(nome_arquivo)[0]
-            # Pega só os primeiros 50 caracteres do nome
-            nome_curto = nome_base_original[:50] + ".docx"
-            caminho_save = os.path.join(self.output_dir, nome_curto)
-            messagebox.showwarning("Aviso", 
-                f"Caminho muito longo!\n\n"
-                f"Nome original: {nome_arquivo}\n"
-                f"Nome usado: {nome_curto}\n\n"
-                f"Considere usar um diretório com caminho mais curto.")
-        
-        # Se o arquivo já existir, adiciona um sufixo numérico
-        if os.path.exists(caminho_save):
-            nome_base = os.path.splitext(os.path.basename(caminho_save))[0]
-            extensao = ".docx"
-            contador = 1
-            while os.path.exists(caminho_save):
-                nome_arquivo = f"{nome_base}_{contador}{extensao}"
-                caminho_save = os.path.join(self.output_dir, nome_arquivo)
-                contador += 1
-                # Proteção contra loop infinito
-                if contador > 1000:
-                    messagebox.showerror("Erro", "Não foi possível encontrar um nome de arquivo disponível.")
-                    return
         
         # Se o arquivo já existir, adiciona um sufixo numérico
         if os.path.exists(caminho_save):

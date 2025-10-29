@@ -588,13 +588,13 @@ class PrintFApp:
         # Abre novo módulo
         self.current_module = self.modules[module_key]
         
-        # 🔥 CORREÇÃO CRÍTICA: Sequência correta para evitar ambos minimizados
+        # 🔥 CORREÇÃO CRÍTICA: Sequência correta para garantir que o módulo fique visível
         try:
-            # Primeiro garante que o módulo está criado e configurado
+            # Primeiro mostra o módulo
             self.current_module.show()
             
-            # 🔥 CORREÇÃO: Aguardar um pouco mais para garantir que o módulo está totalmente renderizado
-            self.root.after(300, self._minimize_main_and_focus_module)
+            # 🔥 NOVA CORREÇÃO: Aguardar um pouco para garantir renderização completa
+            self.root.after(500, self._focus_module_only)  # Aumentei o tempo para 500ms
             
         except Exception as e:
             print(f"❌ Erro ao abrir módulo {module_key}: {e}")
@@ -605,7 +605,7 @@ class PrintFApp:
                     self.modules[module_key] = module
                     self.current_module = module
                     self.current_module.show()
-                    self.root.after(300, self._minimize_main_and_focus_module)
+                    self.root.after(500, self._focus_module_only)
                 else:
                     messagebox.showerror("Erro", f"Falha crítica ao abrir {module_key}")
                     return
@@ -613,28 +613,24 @@ class PrintFApp:
                 messagebox.showerror("Erro", f"Falha crítica ao abrir {module_key}: {e2}")
                 return
 
-    def _minimize_main_and_focus_module(self):
-        """Minimiza a main e foca no módulo - CORREÇÃO SEPARADA"""
+    # 🔥 NOVO MÉTODO: Foca apenas no módulo SEM minimizar a janela principal
+    def _focus_module_only(self):
+        """Apenas foca no módulo sem minimizar a janela principal"""
         try:
-            # Primeiro garante que o módulo está em primeiro plano
             if self.current_module and hasattr(self.current_module, 'root'):
+                # Garante que o módulo está visível e com foco
+                self.current_module.root.deiconify()
                 self.current_module.root.lift()
                 self.current_module.root.focus_force()
                 self.current_module.root.attributes('-topmost', True)
                 
-                # 🔥 CORREÇÃO: Aguardar um pouco antes de minimizar a main
-                self.root.after(100, lambda: self.root.iconify())
-                
-                # Remover o topmost após um breve período
-                self.current_module.root.after(1000, lambda: self.current_module.root.attributes('-topmost', False))
+                # Remove o topmost após um breve período
+                self.current_module.root.after(1000, lambda: 
+                    self.current_module.root.attributes('-topmost', False) 
+                    if hasattr(self.current_module, 'root') else None)
                 
         except Exception as e:
-            print(f"⚠️ Erro ao minimizar main e focar módulo: {e}")
-            # Fallback: apenas minimiza a main
-            try:
-                self.root.iconify()
-            except:
-                pass
+            print(f"⚠️ Erro ao focar módulo: {e}")
 
     def _create_module(self, module_key):
         """Cria módulo dinamicamente"""
