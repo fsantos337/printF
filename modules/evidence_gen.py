@@ -14,8 +14,6 @@ import re
 import glob
 import json
 import uuid
-import shutil
-import subprocess
 
 # Importar sistema de estilos
 try:
@@ -30,7 +28,7 @@ except ImportError:
         print("⚠️ Estilos Liquid Glass não disponíveis, usando fallback")
 
 class EvidenceGeneratorModule:
-    """Módulo completo de geração de documentos de evidências a partir de arquivos existentes"""
+    """Módulo completo de geração de documentos de evidências"""
     
     def __init__(self, parent=None, settings=None):
         self.parent = parent  # Referência à janela principal
@@ -54,22 +52,12 @@ class EvidenceGeneratorModule:
         self.processamento_cancelado = False
         self.saved_file_path = None
         
-        # 🔥 NOVOS ATRIBUTOS PARA COMPATIBILIDADE COM CAPTURE.PY
-        self.pausado = False
-        self.evidencia_count = 0
-        self.pasta_automatica = False
-        self.pasta_automatica_path = None
-        self.modo_captura = "manter"  # Sempre "manter" para o gerador
+        # CORREÇÃO: Extensões suportadas
+        self.supported_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp')
         
-        # Configuração de estilos
+        # Configuração de estilos - CORREÇÃO: Verificar tema nas settings
         self.using_liquid_glass = STYLES_AVAILABLE and self.settings.get('theme', 'liquid_glass') == 'liquid_glass'
         self.style_manager = LiquidGlassStyle if STYLES_AVAILABLE else None
-
-        # Atributos para navegação
-        self.current_img_label = None
-        self.current_img_tk = None
-        self.comment_entry = None
-        self.pos_label = None
 
     def _apply_styles(self, window):
         """Aplica estilos à janela"""
@@ -189,45 +177,45 @@ class EvidenceGeneratorModule:
                 json.dump(self.metadata, f, indent=2, ensure_ascii=False)
 
     def carregar_evidencias(self, dir_path):
-        """Carrega as evidências baseadas nos metadados"""
+        """Carrega as evidências baseadas nos metadados - SUPORTA MÚLTIPLOS FORMATOS"""
         self.metadata_path = os.path.join(dir_path, "evidencias_metadata.json")
         
         if os.path.exists(self.metadata_path):
             try:
                 with open(self.metadata_path, 'r', encoding='utf-8') as f:
                     self.metadata = json.load(f)
-                print("✅ Metadata carregado do arquivo existente")
-            except Exception as e:
-                print(f"⚠️ Erro ao carregar metadata: {e}")
+            except:
                 self.metadata = {"evidencias": [], "proximo_id": 1}
-        else:
-            self.metadata = {"evidencias": [], "proximo_id": 1}
-            print("ℹ️ Nenhum arquivo de metadata encontrado")
         
         # Carrega evidências ativas (não excluídas)
         evidencias_ativas = []
+        for evidencia in self.metadata["evidencias"]:
+            if not evidencia.get("excluida", False):
+                caminho = os.path.join(dir_path, evidencia["arquivo"])
+                if os.path.exists(caminho):
+                    evidencias_ativas.append(caminho)
         
-        # Primeiro: usar metadados se disponíveis
-        if self.metadata and "evidencias" in self.metadata:
-            for evidencia in self.metadata["evidencias"]:
-                if not evidencia.get("excluida", False):
-                    caminho = os.path.join(dir_path, evidencia["arquivo"])
-                    if os.path.exists(caminho):
-                        evidencias_ativas.append(caminho)
-        
-        # Segundo: buscar todos os PNGs na pasta se não encontrou via metadados
+        # Se não houver metadados, busca arquivos de imagem no diretório
         if not evidencias_ativas:
-            print("🔍 Buscando arquivos PNG na pasta...")
-            for root_dir, _, files in os.walk(dir_path):
-                for file in files:
-                    if file.lower().endswith('.png'):
-                        full_path = os.path.join(root_dir, file)
-                        evidencias_ativas.append(full_path)
+            for arquivo in os.listdir(dir_path):
+                if arquivo.lower().endswith(self.supported_extensions):
+                    caminho = os.path.join(dir_path, arquivo)
+                    evidencias_ativas.append(caminho)
+                    # Adiciona aos metadados
+                    self.metadata["evidencias"].append({
+                        "id": self.metadata["proximo_id"],
+                        "arquivo": arquivo,
+                        "comentario": "",
+                        "excluida": False
+                    })
+                    self.metadata["proximo_id"] += 1
             
-            # Ordenar por data de modificação
-            evidencias_ativas.sort(key=os.path.getmtime)
-            
-            print(f"✅ Encontrados {len(evidencias_ativas)} arquivos PNG")
+            # Salva metadados se foram criados
+            if evidencias_ativas:
+                self._salvar_metadata()
+        
+        # Ordena por timestamp
+        evidencias_ativas.sort(key=lambda x: os.path.getmtime(x))
         
         return evidencias_ativas
 
@@ -246,96 +234,56 @@ class EvidenceGeneratorModule:
         return ""
     
     def show(self):
-        """Mostra a interface do módulo - CORREÇÃO MELHORADA"""
-        try:
-            if not self.root or not self.root.winfo_exists():
-                self._create_interface()
-            else:
-                self.root.deiconify()
-                self.root.lift()
-                self.root.focus_set()
-            
-            # 🔥 CORREÇÃO: Garantir que a janela fique visível SEMPRE
-            self._bring_to_front()
-            
-        except Exception as e:
-            print(f"❌ Erro ao mostrar módulo evidence: {e}")
-            # Fallback: criar nova interface
-            try:
-                self._create_interface()
-                self._bring_to_front()
-            except Exception as e2:
-                messagebox.showerror("Erro", f"Falha ao abrir Gerador de Documentos: {e2}")
-
-    def _bring_to_front(self):
-        """Trazer janela para frente - CORREÇÃO MELHORADA"""
-        if self.root and self.root.winfo_exists():
-            try:
-                # 🔥 CORREÇÃO: Forçar a janela para frente de forma mais agressiva
-                self.root.lift()
-                self.root.focus_force()
-                self.root.attributes('-topmost', True)
-                
-                # Atualizar a janela para garantir que está visível
-                self.root.update()
-                
-                # Remover o topmost após um breve período
-                self.root.after(500, lambda: self.root.attributes('-topmost', False) if self.root else None)
-                
-            except Exception as e:
-                print(f"⚠️ Erro ao trazer janela para frente: {e}")
+        """Mostra a interface do módulo"""
+        if not self.root:
+            self._create_interface()
+        else:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_set()
 
     def _create_interface(self):
-        """Cria a interface do módulo - IGUAL AO CAPTURE.PY"""
+        """Cria a interface do módulo"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Gerador de Documentos de Evidências")
-        self.root.geometry("500x400")
+        self.root.geometry("500x300")
+        self.root.resizable(False, False)
         
-        # 🔥 APLICAR ESTILO À JANELA
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
         self._apply_styles(self.root)
         
-        # 🔥 CORREÇÃO: Usar protocolo correto para fechar
-        self.root.protocol("WM_DELETE_WINDOW", self.hide)
-        self.root.resizable(False, False)
-
-        # 🔥 CRIAR FRAME PRINCIPAL COM ESTILO
-        main_frame = self._create_styled_frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-        # Interface com estilos aplicados
-        self._create_styled_label(main_frame, text="📄 PrintF - Gerador de Evidências", 
-                                style_type="title").pack(pady=20)
+        # Centralizar na tela principal
+        self.root.transient(self.parent)
+        self.root.grab_set()
         
-        # 🔥 BOTÃO PRINCIPAL: INICIAR GERADOR
-        self._create_styled_button(main_frame, text="🚀 Iniciar Gerador", 
-                                 command=self.iniciar, style_type="accent").pack(pady=8, fill=tk.X)
+        main_frame = self._create_styled_frame(self.root, padding=30)
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 🔥 ADICIONADO: Descrição do módulo
-        desc_label = tk.Label(main_frame, 
-                            text="Este módulo permite gerar documentos DOCX a partir de evidências PNG já capturadas.\n\n"
-                                 "Selecione o template DOCX e a pasta contendo as evidências para iniciar.",
-                            wraplength=400, justify=tk.CENTER, bg='#f5f5f5', fg='#2c3e50')
-        desc_label.pack(pady=20)
+        self._create_styled_label(main_frame, text="Gerador de Documentos de Evidências", 
+                                 style_type="title").pack(pady=20)
         
-        # 🔥 BOTÃO VOLTAR COM ESTILO
-        if self.using_liquid_glass and self.style_manager:
-            try:
-                voltar_btn = ttk.Button(main_frame, text="⬅ Voltar ao Menu", 
-                                      command=self.hide,
-                                      style="Back.TButton")
-                voltar_btn.pack(pady=15, fill=tk.X)
-            except:
-                # Fallback se o estilo Error não estiver disponível
-                self._create_styled_button(main_frame, text="⬅ Voltar ao Menu", 
-                                         command=self.hide, style_type="glass").pack(pady=15, fill=tk.X)
+        # Label descritivo
+        if self.using_liquid_glass:
+            desc_label = ttk.Label(main_frame, text="Este módulo permite gerar documentos DOCX a partir de evidências capturadas.",
+                                 style="Glass.TLabel")
         else:
-            voltar_btn = tk.Button(main_frame, text="⬅ Voltar ao Menu", 
-                                 command=self.hide,
-                                 bg="#e7b13c", fg="white", font=("Arial", 11), relief="flat")
-            voltar_btn.pack(pady=15, fill=tk.X)
+            desc_label = tk.Label(main_frame, text="Este módulo permite gerar documentos DOCX a partir de evidências capturadas.",
+                                bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10))
+        desc_label.pack(pady=10)
+        
+        def iniciar():
+            if self.mostrar_janela_configuracao():
+                # O processamento continua automaticamente
+                pass
+        
+        self._create_styled_button(main_frame, text="Iniciar Gerador", 
+                                  command=iniciar, style_type="accent", width=20).pack(pady=15)
+        
+        self._create_styled_button(main_frame, text="Voltar ao Menu Principal", 
+                                  command=self.hide, style_type="glass", width=20).pack(pady=5)
 
     def hide(self):
-        """Esconde a interface do módulo de forma segura - CORREÇÃO MELHORADA"""
+        """Esconde a interface do módulo de forma segura"""
         if self.root:
             try:
                 # Parar qualquer gravação em andamento
@@ -374,19 +322,14 @@ class EvidenceGeneratorModule:
                 # Esconder a janela
                 self.root.withdraw()
                 
-                # 🔥 CORREÇÃO CRÍTICA: Restaurar a janela principal de forma mais confiável
+                # Voltar o foco para a janela principal
                 if self.parent and self.parent.winfo_exists():
                     try:
                         self.parent.deiconify()
                         self.parent.lift()
                         self.parent.focus_force()
-                        
-                        # 🔥 NOVO: Forçar a main para frente
-                        self.parent.attributes('-topmost', True)
-                        self.parent.after(100, lambda: self.parent.attributes('-topmost', False))
-                        
-                    except Exception as e:
-                        print(f"⚠️ Erro ao restaurar janela principal: {e}")
+                    except:
+                        pass
                     
             except Exception as e:
                 print(f"Erro ao esconder módulo: {e}")
@@ -398,38 +341,14 @@ class EvidenceGeneratorModule:
                     pass
 
     def finalizar(self):
-        """Método para compatibilidade com capture.py"""
+        """Método para finalizar gravação (para compatibilidade)"""
         self.gravando = False
-
-    # 🔥 NOVO: MÉTODO INICIAR PARA COMPATIBILIDADE COM CAPTURE.PY
-    def iniciar(self):
-        """Inicia o processo de configuração do gerador - IGUAL AO CAPTURE.PY"""
-        # 🔥 CORREÇÃO: Resetar estado ANTES de iniciar
-        self.gravando = False
-        self.pausado = False
-        self.prints = []
-        self.evidencia_count = 0
-        self.pasta_automatica = False
-        self.pasta_automatica_path = None
-        
-        # Mostrar janela de configuração
-        if self.mostrar_janela_configuracao():
-            print("✅ Configuração concluída, iniciando navegação...")
-        else:
-            print("❌ Configuração cancelada pelo usuário")
-
-    def pausar(self):
-        """Método para compatibilidade com capture.py"""
-        messagebox.showinfo("Info", "Este módulo não suporta pausa.")
-
-    def retomar(self):
-        """Método para compatibilidade com capture.py"""
-        messagebox.showinfo("Info", "Este módulo não suporta retomada.")
 
     # ---------- Nova janela de configuração ----------
     def mostrar_janela_configuracao(self):
+        """CORREÇÃO: Janela de configuração agora retorna True corretamente"""
         config_window = tk.Toplevel(self.root)
-        config_window.title("Configuração do Gerador de Evidências")
+        config_window.title("Configuração de Arquivo")
         config_window.geometry("600x500")
         config_window.resizable(False, False)
         
@@ -437,21 +356,21 @@ class EvidenceGeneratorModule:
         self._apply_styles(config_window)
         
         config_window.transient(self.root)
+        config_window.grab_set()
         
         main_frame = self._create_styled_frame(config_window, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        self._create_styled_label(main_frame, text="PrintF - Gerador de Evidências", 
+        self._create_styled_label(main_frame, text="PrintF - Configuração de Arquivo", 
                                  style_type="title").pack(pady=10)
-
-        # 🔥 MODIFICADO: Descrição mais clara
-        desc_label = tk.Label(main_frame, 
-                            text="Selecione o template DOCX e a pasta contendo as evidências PNG capturadas.",
-                            wraplength=500, justify=tk.LEFT, bg='#f5f5f5', fg='#2c3e50')
-        desc_label.pack(pady=10)
         
         # Seleção de template
-        tk.Label(main_frame, text="Selecione o template DOCX:").pack(anchor="w", pady=(10, 5))
+        if self.using_liquid_glass:
+            ttk.Label(main_frame, text="Selecione o template DOCX:", 
+                     style="Glass.TLabel").pack(anchor="w", pady=(10, 5))
+        else:
+            tk.Label(main_frame, text="Selecione o template DOCX:", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack(anchor="w", pady=(10, 5))
         
         template_frame = self._create_styled_frame(main_frame)
         template_frame.pack(fill=tk.X, pady=5)
@@ -469,10 +388,15 @@ class EvidenceGeneratorModule:
                 self.template_var.set(template_path)
         
         self._create_styled_button(template_frame, text="Procurar", 
-                                  command=selecionar_template).pack(side=tk.RIGHT)
+                                  command=selecionar_template, style_type="glass").pack(side=tk.RIGHT)
         
         # Seleção de diretório de evidências
-        tk.Label(main_frame, text="Selecione a pasta com as evidências PNG:").pack(anchor="w", pady=(20, 5))
+        if self.using_liquid_glass:
+            ttk.Label(main_frame, text="Selecione o diretório onde estão as evidências:", 
+                     style="Glass.TLabel").pack(anchor="w", pady=(10, 5))
+        else:
+            tk.Label(main_frame, text="Selecione o diretório onde estão as evidências:", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack(anchor="w", pady=(10, 5))
         
         dir_frame = self._create_styled_frame(main_frame)
         dir_frame.pack(fill=tk.X, pady=5)
@@ -482,513 +406,431 @@ class EvidenceGeneratorModule:
         dir_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         
         def selecionar_diretorio():
-            dir_path = filedialog.askdirectory(title="Selecione a pasta com as evidências PNG")
+            dir_path = filedialog.askdirectory(title="Selecione o diretório onde estão as evidências")
             if dir_path:
                 self.dir_var.set(dir_path)
-                # 🔥 NOVO: Atualizar lista automaticamente ao selecionar pasta
                 atualizar_lista_arquivos(dir_path)
         
         self._create_styled_button(dir_frame, text="Procurar", 
-                                  command=selecionar_diretorio).pack(side=tk.RIGHT)
-
-        # 🔥 MODIFICADO: Frame para lista de arquivos com melhor visualização
-        list_frame = self._create_styled_frame(main_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 5))
+                                  command=selecionar_diretorio, style_type="glass").pack(side=tk.RIGHT)
         
-        tk.Label(list_frame, text="Evidências encontradas:").pack(anchor="w")
+        # Frame para exibir a lista de arquivos
+        file_list_frame = self._create_styled_frame(main_frame)
+        file_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
         
-        # Frame para lista com scrollbar
-        list_container = self._create_styled_frame(list_frame)
-        list_container.pack(fill=tk.BOTH, expand=True, pady=5)
+        if self.using_liquid_glass:
+            file_list_scrollbar = ttk.Scrollbar(file_list_frame, style="Glass.Vertical.TScrollbar")
+        else:
+            file_list_scrollbar = tk.Scrollbar(file_list_frame)
+        file_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        scrollbar = tk.Scrollbar(list_container)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.file_listbox = tk.Listbox(list_container, yscrollcommand=scrollbar.set, height=8)
+        # Listbox para mostrar arquivos encontrados
+        self.file_listbox = self._create_styled_listbox(file_list_frame, 
+                                                       yscrollcommand=file_list_scrollbar.set, 
+                                                       height=8)
         self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.file_listbox.yview)
+        file_list_scrollbar.config(command=self.file_listbox.yview)
         
-        # 🔥 NOVO: Label para contagem de arquivos
-        self.file_count_label = tk.Label(list_frame, text="Nenhuma evidência encontrada", bg='#f5f5f5', fg='#2c3e50')
-        self.file_count_label.pack(anchor="w")
+        if self.using_liquid_glass:
+            self.file_count_label = ttk.Label(main_frame, text="Nenhum arquivo de imagem encontrado",
+                                             style="Glass.TLabel")
+        else:
+            self.file_count_label = tk.Label(main_frame, text="Nenhum arquivo de imagem encontrado",
+                                           bg='#f5f5f5', fg='#2c3e50', font=("Arial", 9))
+        self.file_count_label.pack(anchor="w", pady=(0, 10))
         
         def atualizar_lista_arquivos(dir_path):
-            """Atualiza a lista de arquivos PNG encontrados"""
+            """CORREÇÃO: Atualiza lista com múltiplos formatos de imagem"""
             self.file_listbox.delete(0, tk.END)
+            image_files = self.carregar_evidencias(dir_path)
             
-            if not dir_path or not os.path.exists(dir_path):
-                self.file_count_label.config(text="Pasta não encontrada")
-                return
-                
-            # 🔥 MODIFICADO: Buscar por arquivos PNG recursivamente
-            png_files = []
-            for root_dir, _, files in os.walk(dir_path):
-                for file in files:
-                    if file.lower().endswith('.png'):
-                        png_files.append(os.path.join(root_dir, file))
-            
-            # Ordenar por data de modificação (mais recentes primeiro)
-            png_files.sort(key=os.path.getmtime, reverse=True)
-            
-            for file_path in png_files:
+            for file_path in image_files:
                 filename = os.path.basename(file_path)
-                # Mostrar nome do arquivo e data
+                # Mostra também o timestamp para referência
                 timestamp = datetime.fromtimestamp(os.path.getmtime(file_path))
-                display_text = f"{filename} - {timestamp.strftime('%d/%m/%Y %H:%M')}"
-                self.file_listbox.insert(tk.END, display_text)
+                ext = os.path.splitext(filename)[1].upper()
+                self.file_listbox.insert(tk.END, f"{filename} ({timestamp.strftime('%H:%M:%S')}) [{ext}]")
             
-            if png_files:
-                self.file_count_label.config(text=f"{len(png_files)} evidência(s) encontrada(s)")
+            if image_files:
+                self.file_count_label.config(text=f"{len(image_files)} arquivo(s) de imagem encontrado(s)")
             else:
-                self.file_count_label.config(text="Nenhuma evidência PNG encontrada")
+                self.file_count_label.config(text="Nenhum arquivo de imagem encontrado")
         
-        # 🔥 NOVO: Botão para atualizar lista manualmente
-        refresh_btn = self._create_styled_button(list_frame, text="🔄 Atualizar Lista", 
-                                               command=lambda: atualizar_lista_arquivos(self.dir_var.get()))
-        refresh_btn.pack(pady=5)
+        # CORREÇÃO: Variável para controlar se deve processar
+        processar = [False]  # Usa lista para permitir modificação dentro de função aninhada
         
-        # Botões de ação
+        # Botões
         btn_frame = self._create_styled_frame(main_frame)
         btn_frame.pack(pady=20)
         
-        def iniciar_navegacao():
-            """Inicia a navegação pelas evidências"""
-            if not self.template_var.get():
-                messagebox.showerror("Erro", "Por favor, selecione o template DOCX.")
+        def iniciar_geracao():
+            """CORREÇÃO: Valida e inicia a geração"""
+            if not self.template_var.get() or not self.dir_var.get():
+                messagebox.showerror("Erro", "Por favor, selecione o template e o diretório de evidências.")
                 return
             
-            if not self.dir_var.get():
-                messagebox.showerror("Erro", "Por favor, selecione a pasta com as evidências.")
-                return
-            
-            template_path = self.template_var.get()
-            evidence_dir = self.dir_var.get()
-            
-            if not os.path.exists(template_path):
+            if not os.path.exists(self.template_var.get()):
                 messagebox.showerror("Erro", "O arquivo de template selecionado não existe.")
                 return
             
-            if not os.path.exists(evidence_dir):
-                messagebox.showerror("Erro", "A pasta de evidências selecionada não existe.")
+            if not os.path.exists(self.dir_var.get()):
+                messagebox.showerror("Erro", "O diretório de evidências selecionado não existe.")
                 return
             
-            # 🔥 CARREGAR EVIDÊNCIAS COM METADADOS SE EXISTIR
-            self.template_path = template_path
-            self.output_dir = evidence_dir
-            self.evidence_dir = evidence_dir
-            
-            # Carregar evidências (com suporte a metadata.json se existir)
-            self.prints = self.carregar_evidencias(evidence_dir)
-            
-            if not self.prints:
-                messagebox.showerror("Erro", "Nenhuma evidência PNG encontrada na pasta selecionada.")
+            image_files = self.carregar_evidencias(self.dir_var.get())
+            if not image_files:
+                messagebox.showerror("Erro", "Nenhuma evidência de imagem encontrada no diretório selecionado.\n\n" +
+                                   f"Formatos suportados: {', '.join(self.supported_extensions)}")
                 return
             
-            print(f"✅ {len(self.prints)} evidência(s) carregada(s)")
+            # CORREÇÃO: Salvar template_path ANTES de destruir a janela
+            self.template_path = self.template_var.get()
+            self.output_dir = self.dir_var.get()
+            self.evidence_dir = self.dir_var.get()
+            self.prints = image_files
+            self.current_index = 0
             
-            # 🔥 NOVO: Verificar se metadata foi carregado
-            metadata_path = os.path.join(evidence_dir, "evidencias_metadata.json")
-            if os.path.exists(metadata_path):
-                print("✅ Metadata carregado do arquivo existente")
-            else:
-                print("ℹ️ Nenhum arquivo de metadata encontrado, operando sem metadados")
+            print(f"DEBUG na janela de config - template_path: {self.template_path}")
             
-            config_window.destroy()
-            self.mostrar_janela_navegacao()
-        
-        def cancelar():
+            processar[0] = True
             config_window.destroy()
         
-        self._create_styled_button(btn_frame, text="🚀 Iniciar Navegação", 
-                                  command=iniciar_navegacao, style_type="accent").pack(side=tk.LEFT, padx=10)
-        
-        self._create_styled_button(btn_frame, text="❌ Cancelar", 
-                                  command=cancelar, style_type="glass").pack(side=tk.LEFT, padx=10)
-        
-        # 🔥 NOVO: Atualizar lista se já houver um diretório selecionado
-        if self.dir_var.get():
-            atualizar_lista_arquivos(self.dir_var.get())
+        self._create_styled_button(btn_frame, text="Gerar Documento", 
+                                  command=iniciar_geracao, style_type="accent").pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(btn_frame, text="Cancelar", 
+                                  command=config_window.destroy, style_type="glass").pack(side=tk.LEFT, padx=5)
         
         self.root.wait_window(config_window)
-        return len(self.prints) > 0
-
-    def mostrar_janela_navegacao(self):
-        """Janela principal de navegação pelas evidências - IGUAL AO CAPTURE.PY"""
-        if self.popup and self.popup.winfo_exists():
-            self.popup.destroy()
-
-        self.popup = tk.Toplevel(self.root)
-        self.popup.title("Navegação de Evidências - Gerador")
-        self.popup.geometry("1200x800")
-        self.popup.resizable(True, True)
         
-        # Aplicar estilo à janela
-        self._apply_styles(self.popup)
-        
-        self.popup.transient(self.root)
-        
-        # Configurar grid para melhor organização
-        self.popup.grid_columnconfigure(0, weight=1)
-        self.popup.grid_rowconfigure(0, weight=1)  # A área da imagem expande
-        
-        # Frame da imagem (maior para melhor visualização)
-        img_frame = self._create_styled_frame(self.popup)
-        img_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        img_frame.grid_rowconfigure(0, weight=1)
-        img_frame.grid_columnconfigure(0, weight=1)
-        
-        self.current_img_label = tk.Label(img_frame, bg="white")
-        self.current_img_label.grid(row=0, column=0, sticky="nsew")
-        
-        # Frame do comentário (abaixo da imagem)
-        comment_frame = self._create_styled_frame(self.popup)
-        comment_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
-                
-        self._create_styled_label(comment_frame, text="Comentário:").pack(anchor="w")
-        
-        # Criar um frame para o campo de entrada
-        comment_entry_frame = self._create_styled_frame(comment_frame)
-        comment_entry_frame.pack(fill=tk.X, pady=2)
-        
-        # Campo de comentário
-        self.comment_entry = tk.Entry(comment_entry_frame, font=("Arial", 10))
-        self.comment_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.comment_entry.bind("<FocusOut>", lambda e: self.salvar_comentario())
-        
-        # Frame principal para os botões de navegação e ação
-        buttons_main_frame = self._create_styled_frame(self.popup)
-        buttons_main_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
-        
-        # Frame para centralizar os botões de navegação
-        nav_frame = self._create_styled_frame(buttons_main_frame)
-        nav_frame.pack(expand=True, pady=2)
-        
-        # Botões de navegação (centralizados)
-        self._create_styled_button(nav_frame, text="⏮️ Primeira", command=self.primeira_evidencia, 
-                                 style_type="glass").pack(side=tk.LEFT, padx=2)
-        self._create_styled_button(nav_frame, text="◀️ Anterior", command=self.anterior_evidencia,
-                                 style_type="glass").pack(side=tk.LEFT, padx=2)
-        
-        # Indicador de posição
-        self.pos_label = tk.Label(nav_frame, text="", font=("Arial", 12, "bold"))
-        self.pos_label.pack(side=tk.LEFT, padx=15)
-        
-        self._create_styled_button(nav_frame, text="▶️ Próxima", command=self.proxima_evidencia,
-                                 style_type="glass").pack(side=tk.LEFT, padx=2)
-        self._create_styled_button(nav_frame, text="⏭️ Última", command=self.ultima_evidencia,
-                                 style_type="glass").pack(side=tk.LEFT, padx=2)
-        
-        # Pular para específica
-        self._create_styled_button(nav_frame, text="🔢 Ir para...", command=self.ir_para_especifica,
-                                 style_type="glass").pack(side=tk.LEFT, padx=2)
-        
-        # Botões de ação no mesmo nível (Editar e Excluir Print)
-        action_frame = self._create_styled_frame(buttons_main_frame)
-        action_frame.pack(expand=True, pady=2)
-        
-        self._create_styled_button(action_frame, text="✏️ Editar Print", command=self.editar_evidencia_atual,
-                                 style_type="glass").pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(action_frame, text="🗑️ Excluir Print", command=self.excluir_evidencia_atual,
-                                 style_type="glass").pack(side=tk.LEFT, padx=5)
-        
-        # Frame de controle (parte inferior)
-        control_frame = self._create_styled_frame(self.popup)
-        control_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
-        
-        # Frame para centralizar os botões de controle
-        control_buttons_frame = self._create_styled_frame(control_frame)
-        control_buttons_frame.pack(expand=True)
-        
-        # Botões na ordem solicitada: Cancelar primeiro, depois Gerar Evidência
-        self._create_styled_button(control_buttons_frame, text="❌ Cancelar", command=self.cancelar_processamento,
-                                 style_type="error").pack(side=tk.LEFT, padx=5)
-        
-        # 🔥 ADICIONADO: Botão Voltar ao Menu Principal na navegação
-        self._create_styled_button(control_buttons_frame, text="🏠 Voltar ao Menu Principal", command=self.hide,
-                                 style_type="glass").pack(side=tk.LEFT, padx=5)
-        
-        self._create_styled_button(control_buttons_frame, text="✅ Gerar Documento", command=self.finalizar_processamento,
-                                 style_type="accent").pack(side=tk.LEFT, padx=5)
-        
-        # Carregar primeira evidência
-        self.current_index = 0
-        self.atualizar_exibicao()
-        
-        self.popup.protocol("WM_DELETE_WINDOW", self.cancelar_processamento)
-
-    def atualizar_exibicao(self):
-        """Atualiza a exibição da evidência atual"""
-        if not self.prints or self.current_index >= len(self.prints):
-            return
-            
-        caminho_print = self.prints[self.current_index]
-        
-        try:
-            # Carrega e exibe a imagem com tamanho maior
-            img = Image.open(caminho_print)
-            
-            # Obter o tamanho da área disponível para a imagem
-            self.popup.update()
-            available_width = self.popup.winfo_width() - 40  # Margens
-            available_height = self.popup.winfo_height() - 250  # Espaço para controles
-            
-            # Ajustar a imagem para caber na área disponível
-            img.thumbnail((available_width, available_height))
-            self.current_img_tk = ImageTk.PhotoImage(img)
-            self.current_img_label.config(image=self.current_img_tk)
-            
-            # Atualiza indicador de posição
-            self.pos_label.config(text=f"Evidência {self.current_index + 1} de {len(self.prints)}")
-            
-            # Carrega comentário salvo
-            nome_arquivo = os.path.basename(caminho_print)
-            comentario = self.obter_comentario(nome_arquivo)
-            self.comment_entry.delete(0, tk.END)
-            self.comment_entry.insert(0, comentario)
-            
-        except Exception as e:
-            print(f"Erro ao carregar imagem: {e}")
-
-    def salvar_comentario(self):
-        """Salva o comentário da evidência atual"""
-        if not self.prints or self.current_index >= len(self.prints):
-            return
-            
-        caminho_print = self.prints[self.current_index]
-        nome_arquivo = os.path.basename(caminho_print)
-        comentario = self.comment_entry.get()
-        
-        # Atualiza metadados
-        for evidencia in self.metadata["evidencias"]:
-            if evidencia["arquivo"] == nome_arquivo:
-                evidencia["comentario"] = comentario
-                break
-                
-        self._salvar_metadata()        
-
-    # Métodos de navegação
-    def primeira_evidencia(self):
-        self.salvar_comentario()
-        self.current_index = 0
-        self.atualizar_exibicao()
-
-    def anterior_evidencia(self):
-        self.salvar_comentario()
-        if self.current_index > 0:
-            self.current_index -= 1
-            self.atualizar_exibicao()
-
-    def proxima_evidencia(self):
-        self.salvar_comentario()
-        if self.current_index < len(self.prints) - 1:
-            self.current_index += 1
-            self.atualizar_exibicao()
-
-    def ultima_evidencia(self):
-        self.salvar_comentario()
-        self.current_index = len(self.prints) - 1
-        self.atualizar_exibicao()
-
-    def ir_para_especifica(self):
-        self.salvar_comentario()
-        if not self.prints:
-            return
-            
-        numero = simpledialog.askinteger("Navegar", 
-                                       f"Digite o número da evidência (1-{len(self.prints)}):",
-                                       minvalue=1, maxvalue=len(self.prints))
-        if numero:
-            self.current_index = numero - 1
-            self.atualizar_exibicao()
-
-    def editar_evidencia_atual(self):
-        self.salvar_comentario()
-        if not self.prints or self.current_index >= len(self.prints):
-            return
-            
-        caminho_print = self.prints[self.current_index]
-        self.abrir_editor(caminho_print, self.popup)
-        self.atualizar_exibicao()
-
-    def excluir_evidencia_atual(self):
-        self.salvar_comentario()
-        if not self.prints or self.current_index >= len(self.prints):
-            return
-            
-        caminho_print = self.prints[self.current_index]
-        nome_arquivo = os.path.basename(caminho_print)
-        
-        if messagebox.askyesno("Confirmar Exclusão", 
-                             "Tem certeza que deseja excluir este print?"):
-            try:
-                os.remove(caminho_print)
-                
-                for evidencia in self.metadata["evidencias"]:
-                    if evidencia["arquivo"] == nome_arquivo:
-                        evidencia["excluida"] = True
-                        break
-                
-                self._salvar_metadata()
-                self.recarregar_evidencias()
-                
-                if not self.prints:
-                    messagebox.showinfo("Info", "Todas as evidências foram processadas.")
-                    self.finalizar_processamento()
-                    return
-                
-                if self.current_index >= len(self.prints):
-                    self.current_index = len(self.prints) - 1
-                
-                self.atualizar_exibicao()
-                messagebox.showinfo("Sucesso", "Evidência excluída!")
-                
-            except Exception as e:
-                messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}")
-
-    def finalizar_processamento(self):
-        """Processa todas as evidências e gera o DOCX"""
-        self.salvar_comentario()
-        
-        try:
-            doc_path = self.gerar_documento()
-            
-            pasta_para_abrir = os.path.dirname(doc_path)
-            
-            resposta = messagebox.askyesno(
-                "Sucesso", 
-                f"Documento gerado com sucesso em:\n{doc_path}\n\nDeseja abrir a pasta onde o documento foi salvo?",
-                parent=self.popup
-            )
-            
-            if resposta:
-                if not self._abrir_pasta(pasta_para_abrir):
-                    messagebox.showinfo(
-                        "Abrir Pasta", 
-                        f"Pasta do documento:\n{pasta_para_abrir}",
-                        parent=self.popup
-                    )
-                    
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao gerar documento: {e}", parent=self.popup)
-        
-        if self.popup and self.popup.winfo_exists():
-            self.popup.destroy()
-            self.popup = None
-
-    def _abrir_pasta(self, caminho_pasta):
-        """Abre a pasta no explorador de arquivos do sistema"""
-        try:
-            if os.name == 'nt':  # Windows
-                os.startfile(caminho_pasta)
-            elif os.name == 'posix':  # Linux ou macOS
-                if sys.platform == 'darwin':  # macOS
-                    subprocess.run(['open', caminho_pasta])
-                else:  # Linux
-                    subprocess.run(['xdg-open', caminho_pasta])
+        # CORREÇÃO: Inicia processamento se configuração foi completada
+        if processar[0]:
+            self.iniciar_processamento()
             return True
-        except Exception as e:
-            print(f"Erro ao abrir pasta: {e}")
-            return False
+        
+        return False
 
-    def cancelar_processamento(self):
-        self.salvar_comentario()
-        if messagebox.askyesno("Confirmar", "Deseja cancelar o processamento?"):
-            if self.popup:
-                self.popup.destroy()
-                self.popup = None
+    def iniciar_processamento(self):
+        os.makedirs(self.output_dir, exist_ok=True)
 
-    def gerar_documento(self):
-        """Gera o documento DOCX com as evidências e retorna o caminho do documento"""
-        doc_path = None
         try:
-            print("🔄 Iniciando geração do documento DOCX...")
-            
-            if self.template_path and os.path.exists(self.template_path):
+            if os.path.exists(self.template_path):
                 self.doc = Document(self.template_path)
                 self.using_template = True
-                print(f"✅ Template carregado: {self.template_path}")
             else:
                 self.doc = Document()
                 self.using_template = False
-                print("ℹ️ Criando documento vazio (sem template)")
-            
-            if not self.using_template:
-                titulo = self.doc.add_heading('Evidências Capturadas', 0)
-                titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            
-            if not self.using_template:
-                data_hora = self.doc.add_paragraph()
-                data_hora.add_run(f"Data e hora da geração: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}").italic = True
-                data_hora.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            
-            for i, print_path in enumerate(self.prints, 1):
-                print(f"📷 Adicionando evidência {i}: {print_path}")
-                
-                self.doc.add_paragraph().add_run(f"Evidência {i}").bold = True
-                
-                nome_arquivo = os.path.basename(print_path)
-                comentario = self.obter_comentario(nome_arquivo)
-                if comentario:
-                    comentario_para = self.doc.add_paragraph()
-                    comentario_para.add_run(f"Comentário: {comentario}").italic = True
-                
-                try:
-                    paragraph = self.doc.add_paragraph()
-                    paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-                    run = paragraph.add_run()
-                    
-                    if os.path.exists(print_path):
-                        run.add_picture(print_path, width=Inches(6.0))
-                        print(f"✅ Imagem {i} adicionada com sucesso")
-                    else:
-                        print(f"⚠️ Arquivo não encontrado: {print_path}")
-                        self.doc.add_paragraph(f"[Arquivo de imagem não encontrado: {print_path}]")
-                        
-                except Exception as e:
-                    print(f"❌ Erro ao adicionar imagem {print_path}: {e}")
-                    self.doc.add_paragraph(f"[Erro ao carregar imagem: {print_path}]")
-                
-                self.doc.add_paragraph("―" * 50).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            template_filename = os.path.basename(self.template_path)
-            template_name = os.path.splitext(template_filename)[0]
-            
-            template_name = self._limpar_nome_arquivo(template_name)
-            
-            doc_filename = f"{template_name}_{timestamp}.docx"
-            doc_path = os.path.join(self.output_dir, doc_filename)
-            
-            os.makedirs(os.path.dirname(doc_path), exist_ok=True)
-            
-            if len(doc_path) > 255:
-                short_name = f"Evidencias_{timestamp}.docx"
-                doc_path = os.path.join(self.output_dir, short_name)
-                print(f"⚠️ Caminho muito longo, usando nome reduzido: {short_name}")
-            
-            self.doc.save(doc_path)
-            print(f"✅ Documento salvo em: {doc_path}")
-            
-            return doc_path
-            
         except Exception as e:
-            print(f"❌ Erro ao gerar documento: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+            messagebox.showerror("Erro", f"Erro ao carregar template: {str(e)}")
+            self.doc = Document()
+            self.using_template = False
+        
+        self.gerar_docx()
 
-    def _limpar_nome_arquivo(self, nome):
-        """Remove caracteres inválidos para nomes de arquivo no Windows, mantendo caracteres PT-BR"""
-        caracteres_invalidos = r'[\\/*?:"<>|]'
-        nome_limpo = re.sub(caracteres_invalidos, '_', nome)
+    def gerar_docx(self):
+        # Processa as evidências usando índice em vez de loop for
+        documento_salvo = False  # Flag para controlar se o documento já foi salvo
         
-        nome_limpo = re.sub(r'[^\w\s\-\.\(\)áàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]', '', nome_limpo)
-        
-        if len(nome_limpo) > 100:
-            nome_limpo = nome_limpo[:100]
+        while self.current_index < len(self.prints):
+            caminho_print = self.prints[self.current_index]
             
-        return nome_limpo.strip()
+            # Verifica se o arquivo ainda existe
+            if not os.path.exists(caminho_print):
+                # Recarrega a lista se o arquivo não existir mais
+                if not self.recarregar_evidencias():
+                    break
+                if self.current_index >= len(self.prints):
+                    break
+                caminho_print = self.prints[self.current_index]
+            
+            resultado = self.mostrar_imagem(caminho_print)
+            
+            if resultado is False:  # Processamento cancelado
+                break
+            elif resultado is None:  # Exclusão ocorreu, não incrementa índice
+                # Recarrega a lista após exclusão
+                self.recarregar_evidencias()
+                continue
+            elif resultado == "ja_salvou":  # Já salvou via "Incluir Todos"
+                documento_salvo = True
+                break  # Sai do loop completamente
+            else:  # Adicionou com sucesso, vai para próxima
+                self.current_index += 1
+        
+        # Só salva se não salvou anteriormente (no incluir_todos)
+        if not documento_salvo:
+            self.salvar_docx()
+
+    def mostrar_imagem(self, caminho_print):
+        popup = tk.Toplevel(self.root)
+        popup.title("Adicionar Comentário à Evidência")
+        popup.geometry("950x750")
+        popup.resizable(False, False)
+
+        # Aplicar estilos
+        self._apply_styles(popup)
+
+        self.processamento_cancelado = False
+        resultado = None
+
+        # Verifica se o arquivo ainda existe
+        if not os.path.exists(caminho_print):
+            messagebox.showerror("Erro", f"Arquivo não encontrado: {os.path.basename(caminho_print)}")
+            popup.destroy()
+            return None
+
+        # CORREÇÃO: Abre imagem com tratamento de erro
+        try:
+            img = Image.open(caminho_print)
+            img.thumbnail((850, 550))
+            img_tk = ImageTk.PhotoImage(img)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao carregar imagem: {str(e)}")
+            popup.destroy()
+            return None
+        
+        # Frame para imagem
+        img_frame = self._create_styled_frame(popup)
+        img_frame.pack(pady=10)
+        
+        # Para a imagem, manter fundo branco para melhor contraste
+        label_img = tk.Label(img_frame, image=img_tk, bg='white')
+        label_img.image = img_tk
+        label_img.pack()
+
+        # Frame para comentário
+        comment_frame = self._create_styled_frame(popup)
+        comment_frame.pack(pady=5)
+        
+        if self.using_liquid_glass:
+            ttk.Label(comment_frame, text="Comentário (opcional):", 
+                     style="Glass.TLabel").pack()
+        else:
+            tk.Label(comment_frame, text="Comentário (opcional):", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack()
+        
+        entry = self._create_styled_entry(comment_frame, width=80)
+        entry.pack(pady=5)
+
+        # Mostra informações do arquivo
+        info_frame = self._create_styled_frame(popup)
+        info_frame.pack(pady=5)
+        
+        file_info = f"Arquivo: {os.path.basename(caminho_print)}"
+        timestamp = datetime.fromtimestamp(os.path.getmtime(caminho_print))
+        file_info += f" - {timestamp.strftime('%H:%M:%S')}"
+        
+        if self.using_liquid_glass:
+            ttk.Label(info_frame, text=file_info, font=("Arial", 10),
+                     style="Glass.TLabel").pack()
+        else:
+            tk.Label(info_frame, text=file_info, font=("Arial", 10),
+                    bg='#f5f5f5', fg='#2c3e50').pack()
+
+        def editar_print():
+            self.abrir_editor(caminho_print, popup)
+
+        def adicionar():
+            nonlocal resultado
+            comentario = entry.get()
+            
+            # Atualiza comentário nos metadados
+            nome_arquivo = os.path.basename(caminho_print)
+            for evidencia in self.metadata["evidencias"]:
+                if evidencia["arquivo"] == nome_arquivo:
+                    evidencia["comentario"] = comentario
+                    break
+            self._salvar_metadata()
+            
+            self.doc.add_picture(caminho_print, width=Inches(5))
+            if comentario.strip():
+                self.doc.add_paragraph(comentario)
+            resultado = True
+            popup.destroy()
+
+        def cancelar_processamento():
+            if messagebox.askyesno("Confirmar Cancelamento", 
+                                  "Tem certeza que deseja cancelar o processamento?"):
+                self.processamento_cancelado = True
+                popup.destroy()
+
+        def incluir_todos():
+            if messagebox.askyesno("Confirmar Inclusão", 
+                                  "Deseja incluir todas as evidências restantes sem editar?\nAs evidências serão adicionadas sem comentários."):
+                # Adicionar a evidência atual primeiro
+                comentario = entry.get()
+                
+                # Atualiza comentário nos metadados
+                nome_arquivo = os.path.basename(caminho_print)
+                for evidencia in self.metadata["evidencias"]:
+                    if evidencia["arquivo"] == nome_arquivo:
+                        evidencia["comentario"] = comentario
+                        break
+                self._salvar_metadata()
+                
+                self.doc.add_picture(caminho_print, width=Inches(5))
+                if comentario.strip():
+                    self.doc.add_paragraph(comentario)
+                
+                # Adicionar todas as evidências restantes
+                for i in range(self.current_index + 1, len(self.prints)):
+                    print_path = self.prints[i]
+                    if os.path.exists(print_path):  # Verifica se o arquivo existe
+                        # Usa comentário salvo nos metadados
+                        nome_arquivo_restante = os.path.basename(print_path)
+                        comentario_restante = self.obter_comentario(nome_arquivo_restante)
+                        
+                        self.doc.add_picture(print_path, width=Inches(5))
+                        if comentario_restante.strip():
+                            self.doc.add_paragraph(comentario_restante)
+                        else:
+                            self.doc.add_paragraph("")
+                
+                # Atualiza o índice para o final
+                self.current_index = len(self.prints)
+             
+                # Salva o documento imediatamente
+                self.salvar_docx()
+                
+                # Fecha o popup após salvar
+                popup.destroy()
+                
+                resultado = "ja_salvou"  # Retorna um valor especial para indicar que já salvou
+            else:
+                resultado = False
+
+        def excluir_print():
+            nonlocal resultado
+            if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir esta evidência?"):
+                # Remove o arquivo
+                try:
+                    nome_arquivo = os.path.basename(caminho_print)
+                    
+                    # Marca como excluída nos metadados em vez de remover fisicamente
+                    for evidencia in self.metadata["evidencias"]:
+                        if evidencia["arquivo"] == nome_arquivo:
+                            evidencia["excluida"] = True
+                            break
+                    
+                    self._salvar_metadata()
+                    
+                    # Remove fisicamente o arquivo
+                    os.remove(caminho_print)
+                    print(f"Arquivo excluído: {caminho_print}")
+                    
+                    resultado = None  # Indica que houve exclusão
+                    popup.destroy()
+                    
+                except Exception as e:
+                    print(f"Erro ao excluir arquivo: {e}")
+                    messagebox.showerror("Erro", f"Não foi possível excluir o arquivo: {e}")
+                    resultado = False
+                    popup.destroy()
+                    return
+            else:
+                resultado = False  # Usuário cancelou a exclusão
+
+        # Frame para botões de ação
+        acoes_frame = self._create_styled_frame(popup)
+        acoes_frame.pack(pady=10)
+
+        self._create_styled_button(acoes_frame, text="✏ Editar Print", 
+                                  command=editar_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(acoes_frame, text="Adicionar e Próximo", 
+                                  command=adicionar, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(acoes_frame, text="🗑️ Excluir Print", 
+                                  command=excluir_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
+
+        # Frame para botões de controle
+        controle_frame = self._create_styled_frame(popup)
+        controle_frame.pack(pady=10)
+
+        self._create_styled_button(controle_frame, text="❌ Cancelar", 
+                                  command=cancelar_processamento, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(controle_frame, text="✅ Incluir Todos", 
+                                  command=incluir_todos, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
+
+        def on_closing():
+            cancelar_processamento()
+
+        popup.protocol("WM_DELETE_WINDOW", on_closing)
+        popup.grab_set()
+        self.root.wait_window(popup)
+        
+        if self.processamento_cancelado:
+            return False
+        
+        return resultado
+
+    def salvar_docx(self):
+        # Usa exatamente o mesmo nome do arquivo template selecionado
+        if self.template_path:
+            nome_arquivo = os.path.basename(self.template_path)
+        else:
+            # Nome simples com timestamp se não houver template
+            nome_arquivo = f"Evidencias_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        
+        caminho_save = os.path.join(self.output_dir, nome_arquivo)
+        
+        # Verifica se o caminho é muito longo (limite do Windows: 260 caracteres)
+        if len(caminho_save) > 250:
+            # Se for muito longo, usa um nome mais curto mantendo a extensão
+            nome_base_original = os.path.splitext(nome_arquivo)[0]
+            # Pega só os primeiros 50 caracteres do nome
+            nome_curto = nome_base_original[:50] + ".docx"
+            caminho_save = os.path.join(self.output_dir, nome_curto)
+            messagebox.showwarning("Aviso", 
+                f"Caminho muito longo!\n\n"
+                f"Nome original: {nome_arquivo}\n"
+                f"Nome usado: {nome_curto}\n\n"
+                f"Considere usar um diretório com caminho mais curto.")
+        
+        # Se o arquivo já existir, adiciona um sufixo numérico
+        if os.path.exists(caminho_save):
+            nome_base = os.path.splitext(os.path.basename(caminho_save))[0]
+            extensao = ".docx"
+            contador = 1
+            while os.path.exists(caminho_save):
+                nome_arquivo = f"{nome_base}_{contador}{extensao}"
+                caminho_save = os.path.join(self.output_dir, nome_arquivo)
+                contador += 1
+                # Proteção contra loop infinito
+                if contador > 1000:
+                    messagebox.showerror("Erro", "Não foi possível encontrar um nome de arquivo disponível.")
+                    return
+        
+        # Se o arquivo já existir, adiciona um sufixo numérico
+        if os.path.exists(caminho_save):
+            nome_base = os.path.splitext(nome_arquivo)[0]
+            extensao = os.path.splitext(nome_arquivo)[1]
+            contador = 1
+            while os.path.exists(caminho_save):
+                nome_arquivo = f"{nome_base}_{contador}{extensao}"
+                caminho_save = os.path.join(self.output_dir, nome_arquivo)
+                contador += 1
+        
+        try:
+            self.doc.save(caminho_save)
+            self.saved_file_path = caminho_save
+            
+            # Função para abrir a pasta (será chamada após fechar o messagebox)
+            def abrir_pasta_apos_mensagem():
+                if os.name == 'nt':
+                    os.startfile(self.output_dir)
+                elif os.name == 'posix':
+                    import subprocess
+                    if sys.platform == 'darwin':
+                        subprocess.Popen(['open', self.output_dir])
+                    else:
+                        subprocess.Popen(['xdg-open', self.output_dir])
+            
+            # Mostra a mensagem e agenda a abertura da pasta para depois
+            messagebox.showinfo("Concluído", f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}")
+            
+            # Agenda a abertura da pasta para depois de fechar o messagebox
+            self.root.after(100, abrir_pasta_apos_mensagem)
+                
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao salvar documento: {str(e)}")
 
     # ---------- Editor de prints ----------
     def abrir_editor(self, caminho_print, parent):
@@ -996,52 +838,63 @@ class EvidenceGeneratorModule:
         editor.title("Editor de Evidência")
         editor.geometry("1200x800")
         
+        # Aplicar estilos
         self._apply_styles(editor)
         
+        # Frame principal
         main_frame = self._create_styled_frame(editor)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # Frame para ferramentas e opções
         tools_frame = self._create_styled_frame(main_frame)
         tools_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
         
+        # Frame para a área de desenho
         canvas_frame = self._create_styled_frame(main_frame)
         canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
+        # Carrega a imagem original
         self.original_img = Image.open(caminho_print).convert("RGBA")
         img_w, img_h = self.original_img.size
         
+        # Calcula o fator de escala para exibição
         max_w, max_h = 1000, 700
         scale = min(max_w / img_w, max_h / img_h)
         self.scale_factor = scale
         disp_w, disp_h = int(img_w * scale), int(img_h * scale)
         
+        # Cria cópia da imagem para edição
         self.editing_img = self.original_img.copy()
         self.display_img = self.editing_img.resize((disp_w, disp_h), Image.LANCZOS)
 
+        # Variáveis para controle
         self.current_tk_img = ImageTk.PhotoImage(self.display_img)
-        self.elements = []
-        self.undo_stack = []
+        self.elements = []  # Lista de elementos desenhados
+        self.undo_stack = []  # PILHA PARA DESFAZER AÇÕES
         self.temp_element = None
         
+        # Canvas para a imagem - manter fundo cinza para melhor contraste com imagens
         canvas_bg = 'gray'
         self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg=canvas_bg)
         self.canvas.pack(padx=5, pady=5)
         self.canvas_img = self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
         
-        tool_var = tk.StringVar(value="rectangle")
-        color_var = tk.StringVar(value="#FF0000")
+        # Variáveis de controle - COR PADRÃO VERMELHA
+        tool_var = tk.StringVar(value="rectangle")  # RETÂNGULO COMO PADRÃO
+        color_var = tk.StringVar(value="#FF0000")   # VERMELHO COMO PADRÃO
         width_var = tk.IntVar(value=3)
         
+        # Ferramentas
         if self.using_liquid_glass:
-            ttk.Label(tools_frame, text="Ferramenta:", 
-                     style="Glass.TLabel").pack(side=tk.LEFT, padx=5)
+            ttk.Label(tools_frame, text="Ferramenta:", style="Glass.TLabel").pack(side=tk.LEFT, padx=5)
         else:
-            tk.Label(tools_frame, text="Ferramenta:", 
-                    bg='#f5f5f5', fg='#2c3e50').pack(side=tk.LEFT, padx=5)
+            tk.Label(tools_frame, text="Ferramenta:", bg='#f5f5f5', fg='#2c3e50').pack(side=tk.LEFT, padx=5)
         
+        # Frame para os botões de ferramentas
         tools_buttons_frame = self._create_styled_frame(tools_frame)
         tools_buttons_frame.pack(side=tk.LEFT, padx=5)
         
+        # Ferramentas disponíveis
         tools = [
             ("rectangle", "⬜", "Retângulo"),
             ("circle", "🔴", "Círculo"),
@@ -1059,6 +912,7 @@ class EvidenceGeneratorModule:
                                    width=3, height=2, relief=tk.RAISED)
             btn.pack(side=tk.LEFT, padx=2)
         
+        # Cores
         if self.using_liquid_glass:
             ttk.Label(tools_frame, text="Cor:", style="Glass.TLabel").pack(side=tk.LEFT, padx=20)
         else:
@@ -1081,6 +935,7 @@ class EvidenceGeneratorModule:
                                    fg=color_value)
             btn.pack(side=tk.LEFT, padx=2)
         
+        # Espessura
         if self.using_liquid_glass:
             ttk.Label(tools_frame, text="Espessura:", style="Glass.TLabel").pack(side=tk.LEFT, padx=20)
         else:
@@ -1090,6 +945,7 @@ class EvidenceGeneratorModule:
                               orient=tk.HORIZONTAL, length=100, showvalue=True)
         width_scale.pack(side=tk.LEFT, padx=5)
         
+        # Botões de ação do editor
         action_frame = self._create_styled_frame(tools_frame)
         action_frame.pack(side=tk.RIGHT, padx=10)
         
@@ -1101,14 +957,17 @@ class EvidenceGeneratorModule:
         self._create_styled_button(action_frame, text="Cancelar", 
                                   command=editor.destroy, style_type="glass").pack(side=tk.LEFT, padx=2)
         
+        # Variáveis para controle de desenho
         self.start_x = None
         self.start_y = None
         self.current_element = None
         
+        # Bind eventos do canvas
         self.canvas.bind("<Button-1>", lambda e: self.iniciar_desenho(e, tool_var.get()))
         self.canvas.bind("<B1-Motion>", lambda e: self.desenhar(e, tool_var.get()))
         self.canvas.bind("<ButtonRelease-1>", lambda e: self.finalizar_desenho(e, tool_var.get(), color_var.get(), width_var.get()))
         
+        # Centralizar
         editor.transient(parent)
         editor.grab_set()
 
@@ -1117,8 +976,10 @@ class EvidenceGeneratorModule:
         self.start_y = event.y
         
         if tool == "text":
+            # Para texto, pede o texto via dialog
             texto = simpledialog.askstring("Texto", "Digite o texto:", parent=self.root)
             if texto:
+                # Converte coordenadas para escala original
                 orig_x = int(event.x / self.scale_factor)
                 orig_y = int(event.y / self.scale_factor)
                 
@@ -1127,13 +988,14 @@ class EvidenceGeneratorModule:
                     "text": texto,
                     "x": orig_x,
                     "y": orig_y,
-                    "color": "#FF0000",
+                    "color": "#FF0000",  # Vermelho padrão
                     "size": 20
                 }
                 self.elements.append(element_data)
                 self.aplicar_elemento_na_imagem(element_data)
                 self.atualizar_canvas()
         else:
+            # Para outras ferramentas, inicia desenho temporário
             if tool == "rectangle":
                 self.current_element = self.canvas.create_rectangle(
                     self.start_x, self.start_y, self.start_x, self.start_y,
@@ -1159,7 +1021,9 @@ class EvidenceGeneratorModule:
 
     def finalizar_desenho(self, event, tool, color, width):
         if self.current_element and tool != "text":
+            # Salva o elemento
             coords = self.canvas.coords(self.current_element)
+            # Converte coordenadas para escala original
             orig_coords = [int(coord / self.scale_factor) for coord in coords]
             
             element_data = {
@@ -1171,6 +1035,7 @@ class EvidenceGeneratorModule:
             self.elements.append(element_data)
             self.undo_stack.append(element_data.copy())
             
+            # Aplica na imagem
             self.aplicar_elemento_na_imagem(element_data)
             self.atualizar_canvas()
             
@@ -1191,6 +1056,7 @@ class EvidenceGeneratorModule:
             x1, y1, x2, y2 = element["coords"]
             draw.line([x1, y1, x2, y2], fill=element["color"], width=element["width"])
             
+            # Adiciona ponta da seta
             arrow_size = element["width"] * 3
             angle = math.atan2(y2 - y1, x2 - x1)
             
@@ -1224,6 +1090,7 @@ class EvidenceGeneratorModule:
             if ultimo_elemento in self.elements:
                 self.elements.remove(ultimo_elemento)
             
+            # Recria a imagem
             self.editing_img = self.original_img.copy()
             for element in self.elements:
                 self.aplicar_elemento_na_imagem(element)
@@ -1251,20 +1118,25 @@ if __name__ == "__main__":
     root.geometry("400x200")
     root.resizable(False, False)
     
+    # Aplicar estilos básicos mesmo no modo independente
     try:
         root.configure(bg='#f5f5f5')
     except:
         pass
     
+    # Centraliza a janela
     root.eval('tk::PlaceWindow . center')
     
+    # Frame principal
     main_frame = tk.Frame(root, bg='#f5f5f5', padx=30, pady=30)
     main_frame.pack(fill=tk.BOTH, expand=True)
     
+    # Título
     title_label = tk.Label(main_frame, text="PrintF - Gerador de Evidências", 
                          font=("Arial", 16, "bold"), bg='#f5f5f5', fg='#2c3e50')
     title_label.pack(pady=20)
     
+    # Botão para iniciar
     def iniciar_gerador():
         gerador = EvidenceGeneratorModule(root)
         gerador.show()
@@ -1275,9 +1147,11 @@ if __name__ == "__main__":
                          relief="flat", cursor="hand2")
     start_btn.pack(pady=10)
     
+    # Efeitos hover
     start_btn.bind("<Enter>", lambda e: start_btn.config(bg='#2980b9'))
     start_btn.bind("<Leave>", lambda e: start_btn.config(bg='#3498db'))
     
+    # Botão para sair
     exit_btn = tk.Button(main_frame, text="Sair", command=root.quit, width=15,
                         bg='#e74c3c', fg='white', font=("Arial", 10),
                         relief="flat", cursor="hand2")
