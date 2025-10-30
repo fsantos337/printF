@@ -304,18 +304,39 @@ class PrintFApp:
         title_frame = ttk.Frame(header_frame)
         title_frame.pack(fill=tk.X)
         
-        # 🔥 NOVO: Verificar e carregar logo customizada
+        # 🔥 CORREÇÃO: Verificar e carregar logo customizada de forma relativa ao executável
         logo_loaded = False
-        custom_logo_path = os.path.join(os.path.dirname(__file__), "CUSTOM-LOGO.PNG")
+
+        # Determinar o diretório base correto (funciona tanto no desenvolvimento quanto no EXE)
+        if getattr(sys, 'frozen', False):
+            # Se estiver rodando como executável (PyInstaller)
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # Se estiver rodando como script Python
+            base_dir = os.path.dirname(__file__)
+
+        # Procurar a logo em vários locais possíveis
+        possible_logo_paths = [
+            os.path.join(base_dir, "CUSTOM-LOGO.PNG"),
+            os.path.join(base_dir, "assets", "CUSTOM-LOGO.PNG"),
+            os.path.join(base_dir, "images", "CUSTOM-LOGO.PNG"),
+            os.path.join(os.getcwd(), "CUSTOM-LOGO.PNG")  # Diretório atual de trabalho
+        ]
+
+        custom_logo_path = None
+        for path in possible_logo_paths:
+            if os.path.exists(path):
+                custom_logo_path = path
+                break
         
-        if os.path.exists(custom_logo_path):
+        if custom_logo_path and os.path.exists(custom_logo_path):
             try:
                 from PIL import Image, ImageTk
                 
                 # Carregar e redimensionar imagem
                 pil_image = Image.open(custom_logo_path)
-                # Redimensionar para 32x32 mantendo proporção
-                pil_image.thumbnail((100,100), Image.Resampling.LANCZOS)
+                # Redimensionar para 100x100 mantendo proporção
+                pil_image.thumbnail((100, 100), Image.Resampling.LANCZOS)
                 
                 # Converter para PhotoImage do Tkinter
                 self.custom_logo = ImageTk.PhotoImage(pil_image)
