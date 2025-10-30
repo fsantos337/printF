@@ -52,9 +52,6 @@ class EvidenceGeneratorModule:
         self.processamento_cancelado = False
         self.saved_file_path = None
         
-        # CORREÇÃO: Extensões suportadas
-        self.supported_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp')
-        
         # Configuração de estilos - CORREÇÃO: Verificar tema nas settings
         self.using_liquid_glass = STYLES_AVAILABLE and self.settings.get('theme', 'liquid_glass') == 'liquid_glass'
         self.style_manager = LiquidGlassStyle if STYLES_AVAILABLE else None
@@ -146,6 +143,30 @@ class EvidenceGeneratorModule:
             return tk.Entry(parent, bg='white', fg='#2c3e50', 
                           relief="solid", bd=1, **kwargs)
 
+    def _create_styled_listbox(self, parent, **kwargs):
+        """Cria Listbox com estilos aplicados para Liquid Glass"""
+        if self.using_liquid_glass and self.style_manager:
+            # Para Liquid Glass, usar cores escuras
+            listbox = tk.Listbox(parent, 
+                               bg=self.style_manager.BG_SECONDARY,
+                               fg=self.style_manager.TEXT_PRIMARY,
+                               selectbackground=self.style_manager.ACCENT_PRIMARY,
+                               selectforeground=self.style_manager.TEXT_PRIMARY,
+                               insertbackground=self.style_manager.TEXT_PRIMARY,
+                               relief="flat",
+                               **kwargs)
+        else:
+            # Fallback para estilo padrão
+            listbox = tk.Listbox(parent, 
+                               bg='white', 
+                               fg='#2c3e50',
+                               selectbackground='#3498db',
+                               selectforeground='white',
+                               relief="solid",
+                               bd=1,
+                               **kwargs)
+        return listbox
+
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
         if self.metadata_path:
@@ -153,7 +174,7 @@ class EvidenceGeneratorModule:
                 json.dump(self.metadata, f, indent=2, ensure_ascii=False)
 
     def carregar_evidencias(self, dir_path):
-        """Carrega as evidências baseadas nos metadados - SUPORTA MÚLTIPLOS FORMATOS"""
+        """Carrega as evidências baseadas nos metadados"""
         self.metadata_path = os.path.join(dir_path, "evidencias_metadata.json")
         
         if os.path.exists(self.metadata_path):
@@ -170,28 +191,6 @@ class EvidenceGeneratorModule:
                 caminho = os.path.join(dir_path, evidencia["arquivo"])
                 if os.path.exists(caminho):
                     evidencias_ativas.append(caminho)
-        
-        # Se não houver metadados, busca arquivos de imagem no diretório
-        if not evidencias_ativas:
-            for arquivo in os.listdir(dir_path):
-                if arquivo.lower().endswith(self.supported_extensions):
-                    caminho = os.path.join(dir_path, arquivo)
-                    evidencias_ativas.append(caminho)
-                    # Adiciona aos metadados
-                    self.metadata["evidencias"].append({
-                        "id": self.metadata["proximo_id"],
-                        "arquivo": arquivo,
-                        "comentario": "",
-                        "excluida": False
-                    })
-                    self.metadata["proximo_id"] += 1
-            
-            # Salva metadados se foram criados
-            if evidencias_ativas:
-                self._salvar_metadata()
-        
-        # Ordena por timestamp
-        evidencias_ativas.sort(key=lambda x: os.path.getmtime(x))
         
         return evidencias_ativas
 
@@ -210,93 +209,33 @@ class EvidenceGeneratorModule:
         return ""
     
     def show(self):
-        """CORREÇÃO CRÍTICA: Mostra a interface garantindo visibilidade total"""
+        """Mostra a interface do módulo"""
         if not self.root:
             self._create_interface()
-        
-        # 🔥 CORREÇÃO COMPLETA: Garantir que a janela fique TOTALMENTE visível
-        try:
-            # Primeiro garantir estado normal
-            self.root.state('normal')
-            self.root.attributes('-zoomed', False)
-            self.root.attributes('-topmost', True)  # Forçar ficar no topo temporariamente
-            
-            # Tornar visível
+        else:
             self.root.deiconify()
             self.root.lift()
-            self.root.focus_force()
-            
-            # Atualizar para garantir renderização
-            self.root.update_idletasks()
-            self.root.update()
-            
-            # 🔥 NOVA CORREÇÃO: Remover transient para evitar conflito com main
-            try:
-                self.root.transient(None)
-            except:
-                pass
-            
-            # Remover o topmost após um breve período
-            self.root.after(1000, lambda: self.root.attributes('-topmost', False))
-            
-            print("✅ Módulo EvidenceGeneratorModule mostrado com sucesso")
-            
-        except Exception as e:
-            print(f"❌ Erro ao mostrar módulo: {e}")
-            # Fallback: recriar a interface completamente
-            try:
-                if self.root:
-                    self.root.destroy()
-                self.root = None
-                self._create_interface()
-                self.root.deiconify()
-            except Exception as e2:
-                print(f"❌ Falha crítica ao recriar interface: {e2}")
-
-    def _center_on_parent(self):
-        """Centraliza a janela do módulo em relação à janela principal"""
-        if self.parent:
-            try:
-                self.root.update_idletasks()
-                parent_x = self.parent.winfo_x()
-                parent_y = self.parent.winfo_y()
-                parent_width = self.parent.winfo_width()
-                parent_height = self.parent.winfo_height()
-                
-                width = 800
-                height = 400
-                
-                x = parent_x + (parent_width - width) // 2
-                y = parent_y + (parent_height - height) // 2
-                
-                self.root.geometry(f"{width}x{height}+{x}+{y}")
-            except Exception as e:
-                print(f"⚠️ Erro ao centralizar janela: {e}")
-                # Fallback: centralizar na tela
-                self.root.eval('tk::PlaceWindow . center')
+            self.root.focus_set()
 
     def _create_interface(self):
-        """CORREÇÃO: Cria interface sem usar transient ou grab_set que conflitam com main"""
+        """Cria a interface do módulo"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Gerador de Documentos de Evidências")
         self.root.geometry("500x300")
         self.root.resizable(False, False)
         
-        # 🔥 CORREÇÃO: Remover transient e grab_set que causam conflito com main
-        # self.root.transient(self.parent)  # REMOVIDO - causa conflito
-        # self.root.grab_set()              # REMOVIDO - causa conflito
-        
-        # Aplicar estilos
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
         self._apply_styles(self.root)
         
         # Centralizar na tela principal
-        self._center_on_parent()
+        self.root.transient(self.parent)
+        self.root.grab_set()
         
-        main_frame = self._create_styled_frame(self.root, padding=40)
+        main_frame = self._create_styled_frame(self.root, padding=30)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         self._create_styled_label(main_frame, text="Gerador de Documentos de Evidências", 
-                                 style_type="title").pack(pady=30)
+                                 style_type="title").pack(pady=20)
         
         # Label descritivo
         if self.using_liquid_glass:
@@ -307,21 +246,16 @@ class EvidenceGeneratorModule:
                                 bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10))
         desc_label.pack(pady=10)
         
-        # CORREÇÃO: Frame para os botões em coluna
-        btn_frame = self._create_styled_frame(main_frame)
-        btn_frame.pack(pady=20)
-        
         def iniciar():
             if self.mostrar_janela_configuracao():
                 # O processamento continua automaticamente
                 pass
         
-        # CORREÇÃO: Botões empilhados verticalmente
-        self._create_styled_button(btn_frame, text="Iniciar Gerador", 
-                                  command=iniciar, style_type="accent", width=20).pack(pady=10)
+        self._create_styled_button(main_frame, text="Iniciar Gerador", 
+                                  command=iniciar, style_type="accent", width=20).pack(pady=15)
         
-        self._create_styled_button(btn_frame, text="Voltar ao Menu Principal", 
-                                  command=self.hide, style_type="glass", width=20).pack(pady=10)
+        self._create_styled_button(main_frame, text="Voltar ao Menu Principal", 
+                                  command=self.hide, style_type="glass", width=20).pack(pady=5)
 
     def hide(self):
         """Esconde a interface do módulo de forma segura"""
@@ -387,31 +321,36 @@ class EvidenceGeneratorModule:
 
     # ---------- Nova janela de configuração ----------
     def mostrar_janela_configuracao(self):
-        """CORREÇÃO: Janela de configuração com layout melhorado"""
         config_window = tk.Toplevel(self.root)
         config_window.title("Configuração de Arquivo")
-        config_window.geometry("900x500")  # Aumentei a altura para acomodar melhor os botões
+        config_window.geometry("600x500")
         config_window.resizable(False, False)
         
-        # Aplicar estilos
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
         self._apply_styles(config_window)
         
-        main_frame = self._create_styled_frame(config_window, padding=30)
+        config_window.transient(self.root)
+        config_window.grab_set()
+        
+        main_frame = self._create_styled_frame(config_window, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         self._create_styled_label(main_frame, text="PrintF - Configuração de Arquivo", 
                                  style_type="title").pack(pady=10)
         
         # Seleção de template
-        template_label = self._create_styled_label(main_frame, text="Selecione o template DOCX:", 
-                                                 style_type="glass")
-        template_label.pack(anchor="w", pady=(10, 5))
+        if self.using_liquid_glass:
+            ttk.Label(main_frame, text="Selecione o template DOCX:", 
+                     style="Glass.TLabel").pack(anchor="w", pady=(10, 5))
+        else:
+            tk.Label(main_frame, text="Selecione o template DOCX:", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack(anchor="w", pady=(10, 5))
         
         template_frame = self._create_styled_frame(main_frame)
         template_frame.pack(fill=tk.X, pady=5)
         
         self.template_var = tk.StringVar()
-        template_entry = self._create_styled_entry(template_frame, textvariable=self.template_var, width=50)
+        template_entry = self._create_styled_entry(template_frame, textvariable=self.template_var, width=40)
         template_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         
         def selecionar_template():
@@ -426,58 +365,74 @@ class EvidenceGeneratorModule:
                                   command=selecionar_template, style_type="glass").pack(side=tk.RIGHT)
         
         # Seleção de diretório de evidências
-        dir_label = self._create_styled_label(main_frame, text="Selecione o diretório onde estão as evidências:", 
-                                            style_type="glass")
-        dir_label.pack(anchor="w", pady=(10, 5))
+        if self.using_liquid_glass:
+            ttk.Label(main_frame, text="Selecione o diretório onde estão as evidências:", 
+                     style="Glass.TLabel").pack(anchor="w", pady=(10, 5))
+        else:
+            tk.Label(main_frame, text="Selecione o diretório onde estão as evidências:", 
+                    bg='#f5f5f5', fg='#2c3e50', font=("Arial", 10)).pack(anchor="w", pady=(10, 5))
         
         dir_frame = self._create_styled_frame(main_frame)
         dir_frame.pack(fill=tk.X, pady=5)
         
         self.dir_var = tk.StringVar()
-        dir_entry = self._create_styled_entry(dir_frame, textvariable=self.dir_var, width=50)
+        dir_entry = self._create_styled_entry(dir_frame, textvariable=self.dir_var, width=40)
         dir_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
         
         def selecionar_diretorio():
             dir_path = filedialog.askdirectory(title="Selecione o diretório onde estão as evidências")
             if dir_path:
                 self.dir_var.set(dir_path)
-                atualizar_contador_arquivos(dir_path)
+                atualizar_lista_arquivos(dir_path)
         
         self._create_styled_button(dir_frame, text="Procurar", 
                                   command=selecionar_diretorio, style_type="glass").pack(side=tk.RIGHT)
         
-        # Frame para mostrar informações
-        info_frame = self._create_styled_frame(main_frame)
-        info_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
+        # Frame para exibir a lista de arquivos
+        file_list_frame = self._create_styled_frame(main_frame)
+        file_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
         
-        self.file_count_label = self._create_styled_label(info_frame, text="Nenhum arquivo de imagem encontrado",
-                                                        style_type="glass")
-        self.file_count_label.pack(anchor="w", pady=(10, 5))
+        if self.using_liquid_glass:
+            file_list_scrollbar = ttk.Scrollbar(file_list_frame, style="Glass.Vertical.TScrollbar")
+        else:
+            file_list_scrollbar = tk.Scrollbar(file_list_frame)
+        file_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Label informativa sobre formatos suportados
-        formatos_label = self._create_styled_label(info_frame, 
-                                                 text=f"Formatos suportados: {', '.join(self.supported_extensions)}",
-                                                 style_type="glass")
-        formatos_label.pack(anchor="w", pady=(0, 10))
+        # CORREÇÃO: Usar o método styled para Listbox
+        self.file_listbox = self._create_styled_listbox(file_list_frame, 
+                                                       yscrollcommand=file_list_scrollbar.set, 
+                                                       height=8)
+        self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        file_list_scrollbar.config(command=self.file_listbox.yview)
         
-        def atualizar_contador_arquivos(dir_path):
-            """Atualiza o contador de arquivos de imagem"""
-            image_files = self.carregar_evidencias(dir_path)
+        if self.using_liquid_glass:
+            self.file_count_label = ttk.Label(main_frame, text="Nenhum arquivo PNG encontrado",
+                                             style="Glass.TLabel")
+        else:
+            self.file_count_label = tk.Label(main_frame, text="Nenhum arquivo PNG encontrado",
+                                           bg='#f5f5f5', fg='#2c3e50', font=("Arial", 9))
+        self.file_count_label.pack(anchor="w", pady=(0, 10))
+        
+        def atualizar_lista_arquivos(dir_path):
+            self.file_listbox.delete(0, tk.END)
+            png_files = self.carregar_evidencias(dir_path)
             
-            if image_files:
-                self.file_count_label.config(text=f"{len(image_files)} arquivo(s) de imagem encontrado(s)")
+            for file_path in png_files:
+                filename = os.path.basename(file_path)
+                # Mostra também o timestamp para referência
+                timestamp = datetime.fromtimestamp(os.path.getmtime(file_path))
+                self.file_listbox.insert(tk.END, f"{filename} ({timestamp.strftime('%H:%M:%S')})")
+            
+            if png_files:
+                self.file_count_label.config(text=f"{len(png_files)} arquivo(s) PNG encontrado(s)")
             else:
-                self.file_count_label.config(text="Nenhum arquivo de imagem encontrado")
+                self.file_count_label.config(text="Nenhum arquivo PNG encontrado")
         
-        # CORREÇÃO: Variável para controlar se deve processar
-        processar = [False]
-        
-        # CORREÇÃO: Frame principal para botões - AGORA VERTICAL
-        btn_main_frame = self._create_styled_frame(main_frame)
-        btn_main_frame.pack(pady=20, fill=tk.X)
+        # Botões
+        btn_frame = self._create_styled_frame(main_frame)
+        btn_frame.pack(pady=20)
         
         def iniciar_geracao():
-            """CORREÇÃO: Valida e inicia a geração"""
             if not self.template_var.get() or not self.dir_var.get():
                 messagebox.showerror("Erro", "Por favor, selecione o template e o diretório de evidências.")
                 return
@@ -490,199 +445,27 @@ class EvidenceGeneratorModule:
                 messagebox.showerror("Erro", "O diretório de evidências selecionado não existe.")
                 return
             
-            image_files = self.carregar_evidencias(self.dir_var.get())
-            if not image_files:
-                messagebox.showerror("Erro", "Nenhuma evidência de imagem encontrada no diretório selecionado.\n\n" +
-                                   f"Formatos suportados: {', '.join(self.supported_extensions)}")
+            png_files = self.carregar_evidencias(self.dir_var.get())
+            if not png_files:
+                messagebox.showerror("Erro", "Nenhuma evidência PNG encontrada no diretório selecionado.")
                 return
             
             self.template_path = self.template_var.get()
             self.output_dir = self.dir_var.get()
-            self.evidence_dir = self.dir_var.get()
-            self.prints = image_files
-            self.current_index = 0
+            self.evidence_dir = self.dir_var.get()  # Salva o diretório de evidências
+            self.prints = png_files
+            self.current_index = 0  # Reiniciar índice
             
-            processar[0] = True
-            config_window.destroy()
-
-        def gerar_automaticamente():
-            """Gera documento automaticamente sem navegar pelas imagens"""
-            if not self.template_var.get() or not self.dir_var.get():
-                messagebox.showerror("Erro", "Por favor, selecione o template e o diretório de evidências.")
-                return
-            
-            if not os.path.exists(self.template_var.get()):
-                messagebox.showerror("Erro", "O arquivo de template selecionado não existe.")
-                return
-            
-            if not os.path.exists(self.dir_var.get()):
-                messagebox.showerror("Erro", "O diretório de evidências selecionado não existe.")
-                return
-            
-            image_files = self.carregar_evidencias(self.dir_var.get())
-            if not image_files:
-                messagebox.showerror("Erro", "Nenhuma evidência de imagem encontrada no diretório selecionado.\n\n" +
-                                   f"Formatos suportados: {', '.join(self.supported_extensions)}")
-                return
-            
-            # Confirmar com o usuário
-            if not messagebox.askyesno("Confirmação", 
-                                     f"Deseja gerar o documento automaticamente com {len(image_files)} evidências?\n\n"
-                                     "Todas as imagens serão adicionadas ao documento sem edição individual."):
-                return
-            
-            self.template_path = self.template_var.get()
-            self.output_dir = self.dir_var.get()
-            self.evidence_dir = self.dir_var.get()
-            self.prints = image_files
-            
-            # Fechar janela de configuração
-            config_window.destroy()
-            
-            # Processar automaticamente
-            self.processar_automaticamente()
+            config_window.destroy()            
+            self.iniciar_processamento()
         
-        # CORREÇÃO: Botões em coluna para melhor visualização
-        
-        # Botão Gerar Documento (Navegar)
-        gerar_navegar_btn = self._create_styled_button(btn_main_frame, text="🖼️ Gerar Documento (Navegar)", 
-                                                      command=iniciar_geracao, style_type="accent", width=30)
-        gerar_navegar_btn.pack(pady=8, fill=tk.X)
-        
-        # Botão Gerar Automaticamente  
-        gerar_auto_btn = self._create_styled_button(btn_main_frame, text="🚀 Gerar Automaticamente", 
-                                                  command=gerar_automaticamente, style_type="accent", width=30)
-        gerar_auto_btn.pack(pady=8, fill=tk.X)
-        
-        # Botão Voltar
-        voltar_btn = self._create_styled_button(btn_main_frame, text="↩ Voltar", 
-                                              command=config_window.destroy, style_type="glass", width=20)
-        voltar_btn.pack(pady=8, fill=tk.X)
+        self._create_styled_button(btn_frame, text="Gerar Documento", 
+                                  command=iniciar_geracao, style_type="accent").pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(btn_frame, text="Cancelar", 
+                                  command=config_window.destroy, style_type="glass").pack(side=tk.LEFT, padx=5)
         
         self.root.wait_window(config_window)
-        
-        # CORREÇÃO: Inicia processamento se configuração foi completada
-        if processar[0]:
-            self.iniciar_processamento()
-            return True
-        
-        return False
-
-    def processar_automaticamente(self):
-        """🔥 NOVO: Processa todas as evidências automaticamente sem interface de navegação"""
-        try:
-            # Inicializar documento
-            os.makedirs(self.output_dir, exist_ok=True)
-
-            if os.path.exists(self.template_path):
-                self.doc = Document(self.template_path)
-                self.using_template = True
-            else:
-                self.doc = Document()
-                self.using_template = False
-            
-            # Adicionar todas as imagens ao documento
-            total_imagens = len(self.prints)
-            imagens_adicionadas = 0
-            
-            for i, caminho_print in enumerate(self.prints):
-                if not os.path.exists(caminho_print):
-                    continue
-                
-                try:
-                    # Obter comentário dos metadados
-                    nome_arquivo = os.path.basename(caminho_print)
-                    comentario = self.obter_comentario(nome_arquivo)
-                    
-                    # Adicionar imagem ao documento
-                    self.doc.add_picture(caminho_print, width=Inches(5))
-                    
-                    # Adicionar comentário se existir
-                    if comentario.strip():
-                        self.doc.add_paragraph(comentario)
-                    else:
-                        self.doc.add_paragraph(f"Evidência: {nome_arquivo}")
-                    
-                    imagens_adicionadas += 1
-                    
-                    # Atualizar progresso a cada 10 imagens
-                    if i % 10 == 0:
-                        print(f"Processando... {i+1}/{total_imagens}")
-                        
-                except Exception as e:
-                    print(f"Erro ao processar {caminho_print}: {e}")
-                    continue
-            
-            # Salvar documento
-            if imagens_adicionadas > 0:
-                self.salvar_docx_automatico(imagens_adicionadas, total_imagens)
-            else:
-                messagebox.showwarning("Aviso", "Nenhuma evidência foi adicionada ao documento.")
-                
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro durante processamento automático: {str(e)}")
-
-    def salvar_docx_automatico(self, imagens_adicionadas, total_imagens):
-        """🔥 CORREÇÃO: Salva documento com tratamento melhorado de erros"""
-        try:
-            # CORREÇÃO: Verifica se template_path existe e não é None
-            if self.template_path and os.path.exists(self.template_path):
-                # Usa o nome do template como base
-                nome_base = os.path.splitext(os.path.basename(self.template_path))[0]
-                nome_arquivo = f"{nome_base}_com_evidencias.docx"
-            else:
-                # Nome simples com timestamp se não houver template
-                nome_arquivo = f"Evidencias_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-            
-            caminho_save = os.path.join(self.output_dir, nome_arquivo)
-            
-            # Se o arquivo já existir, adiciona um sufixo numérico
-            if os.path.exists(caminho_save):
-                nome_base = os.path.splitext(nome_arquivo)[0]
-                extensao = os.path.splitext(nome_arquivo)[1]
-                contador = 1
-                while os.path.exists(caminho_save):
-                    nome_arquivo = f"{nome_base}_{contador}{extensao}"
-                    caminho_save = os.path.join(self.output_dir, nome_arquivo)
-                    contador += 1
-            
-            # 🔥 CORREÇÃO: Garantir que o documento existe antes de salvar
-            if not self.doc:
-                messagebox.showerror("Erro", "Documento não foi criado corretamente.")
-                return
-            
-            # Tentar salvar o documento
-            self.doc.save(caminho_save)
-            self.saved_file_path = caminho_save
-            
-            # Mostrar mensagem de sucesso
-            messagebox.showinfo(
-                "Concluído - Processamento Automático", 
-                f"Documento gerado com sucesso!\n\n"
-                f"• Evidências processadas: {imagens_adicionadas}/{total_imagens}\n"
-                f"• Arquivo salvo em:\n{caminho_save}\n\n"
-                f"O documento foi criado automaticamente sem navegação individual."
-            )
-            
-            # Abrir pasta onde o arquivo foi salvo
-            def abrir_pasta_apos_mensagem():
-                try:
-                    if os.name == 'nt':
-                        os.startfile(self.output_dir)
-                    elif os.name == 'posix':
-                        import subprocess
-                        if sys.platform == 'darwin':
-                            subprocess.Popen(['open', self.output_dir])
-                        else:
-                            subprocess.Popen(['xdg-open', self.output_dir])
-                except Exception as e:
-                    print(f"Erro ao abrir pasta: {e}")
-            
-            # Agenda a abertura da pasta
-            self.root.after(100, abrir_pasta_apos_mensagem)
-                
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar documento automaticamente: {str(e)}")
+        return self.template_path is not None and self.output_dir is not None and self.prints
 
     def iniciar_processamento(self):
         os.makedirs(self.output_dir, exist_ok=True)
@@ -741,7 +524,7 @@ class EvidenceGeneratorModule:
         popup.geometry("950x750")
         popup.resizable(False, False)
 
-        # Aplicar estilos
+        # Aplicar estilos - CORREÇÃO: Chamar antes de criar widgets
         self._apply_styles(popup)
 
         self.processamento_cancelado = False
@@ -753,15 +536,9 @@ class EvidenceGeneratorModule:
             popup.destroy()
             return None
 
-        # CORREÇÃO: Abre imagem com tratamento de erro
-        try:
-            img = Image.open(caminho_print)
-            img.thumbnail((850, 550))
-            img_tk = ImageTk.PhotoImage(img)
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao carregar imagem: {str(e)}")
-            popup.destroy()
-            return None
+        img = Image.open(caminho_print)
+        img.thumbnail((850, 550))
+        img_tk = ImageTk.PhotoImage(img)
         
         # Frame para imagem
         img_frame = self._create_styled_frame(popup)
@@ -928,10 +705,7 @@ class EvidenceGeneratorModule:
             cancelar_processamento()
 
         popup.protocol("WM_DELETE_WINDOW", on_closing)
-        
-        # 🔥 CORREÇÃO: Remover grab_set do popup
-        # popup.grab_set()  # REMOVIDO - causa conflito
-        
+        popup.grab_set()
         self.root.wait_window(popup)
         
         if self.processamento_cancelado:
@@ -940,60 +714,74 @@ class EvidenceGeneratorModule:
         return resultado
 
     def salvar_docx(self):
-        """CORREÇÃO: Método de salvar documento com melhor tratamento de erros"""
+        # Gera nome sugerido baseado no template
+        if self.template_path:
+            nome_base = os.path.basename(self.template_path)
+            if nome_base.lower().endswith('.docx'):
+                nome_base = nome_base[:-5]
+            nome_arquivo = f"{nome_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        else:
+            nome_arquivo = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        
+        # Sugere salvar no diretório das evidências
+        diretorio_inicial = self.output_dir if self.output_dir else os.path.expanduser("~")
+        caminho_sugerido = os.path.join(diretorio_inicial, nome_arquivo)
+        
+        # Abre diálogo para o usuário escolher onde salvar
+        caminho_save = filedialog.asksaveasfilename(
+            title="Salvar Documento de Evidências",
+            initialdir=diretorio_inicial,
+            initialfile=nome_arquivo,
+            defaultextension=".docx",
+            filetypes=[("Documentos Word", "*.docx"), ("Todos os arquivos", "*.*")]
+        )
+        
+        # Se o usuário cancelou, não salva
+        if not caminho_save:
+            messagebox.showwarning("Cancelado", "Salvamento cancelado pelo usuário.")
+            return
+        
         try:
-            # CORREÇÃO: Verifica se template_path existe e não é None
-            if self.template_path and os.path.exists(self.template_path):
-                # Usa o nome do template como base
-                nome_base = os.path.splitext(os.path.basename(self.template_path))[0]
-                nome_arquivo = f"{nome_base}_com_evidencias.docx"
-            else:
-                # Nome simples com timestamp se não houver template
-                nome_arquivo = f"Evidencias_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+            # Garante que o diretório existe
+            diretorio_destino = os.path.dirname(caminho_save)
+            if not os.path.exists(diretorio_destino):
+                os.makedirs(diretorio_destino, exist_ok=True)
             
-            caminho_save = os.path.join(self.output_dir, nome_arquivo)
-            
-            # Se o arquivo já existir, adiciona um sufixo numérico
-            if os.path.exists(caminho_save):
-                nome_base = os.path.splitext(nome_arquivo)[0]
-                extensao = os.path.splitext(nome_arquivo)[1]
-                contador = 1
-                while os.path.exists(caminho_save):
-                    nome_arquivo = f"{nome_base}_{contador}{extensao}"
-                    caminho_save = os.path.join(self.output_dir, nome_arquivo)
-                    contador += 1
-            
-            # 🔥 CORREÇÃO: Garantir que o documento existe antes de salvar
-            if not self.doc:
-                messagebox.showerror("Erro", "Documento não foi criado corretamente.")
-                return
-            
-            # Tentar salvar o documento
+            # Salva o documento
             self.doc.save(caminho_save)
             self.saved_file_path = caminho_save
             
-            # Função para abrir a pasta (será chamada após fechar o messagebox)
+            # Função para abrir a pasta
             def abrir_pasta_apos_mensagem():
+                pasta_destino = os.path.dirname(caminho_save)
                 try:
-                    if os.name == 'nt':
-                        os.startfile(self.output_dir)
-                    elif os.name == 'posix':
+                    if os.name == 'nt':  # Windows
+                        os.startfile(pasta_destino)
+                    elif os.name == 'posix':  # Linux/Mac
                         import subprocess
-                        if sys.platform == 'darwin':
-                            subprocess.Popen(['open', self.output_dir])
-                        else:
-                            subprocess.Popen(['xdg-open', self.output_dir])
+                        if sys.platform == 'darwin':  # Mac
+                            subprocess.Popen(['open', pasta_destino])
+                        else:  # Linux
+                            subprocess.Popen(['xdg-open', pasta_destino])
                 except Exception as e:
-                    print(f"Erro ao abrir pasta: {e}")
+                    print(f"Não foi possível abrir a pasta: {e}")
             
-            # Mostra a mensagem e agenda a abertura da pasta para depois
-            messagebox.showinfo("Concluído", f"Documento gerado com sucesso!\nSalvo em:\n{caminho_save}")
+            # Mostra mensagem de sucesso
+            messagebox.showinfo("Concluído", 
+                              f"Documento gerado com sucesso!\n\nSalvo em:\n{caminho_save}\n\nA pasta será aberta automaticamente.")
             
-            # Agenda a abertura da pasta para depois de fechar o messagebox
+            # Agenda abertura da pasta
             self.root.after(100, abrir_pasta_apos_mensagem)
                 
+        except PermissionError:
+            messagebox.showerror("Erro de Permissão", 
+                               f"Não foi possível salvar o arquivo.\n\n"
+                               f"O sistema negou permissão para escrever em:\n{caminho_save}\n\n"
+                               f"Tente salvar em outro local (como Documentos ou Área de Trabalho).")
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar documento: {str(e)}")
+            messagebox.showerror("Erro", 
+                               f"Erro ao salvar documento:\n\n{str(e)}\n\n"
+                               f"Tente salvar em outro local.")
 
     # ---------- Editor de prints ----------
     def abrir_editor(self, caminho_print, parent):
@@ -1130,9 +918,9 @@ class EvidenceGeneratorModule:
         self.canvas.bind("<B1-Motion>", lambda e: self.desenhar(e, tool_var.get()))
         self.canvas.bind("<ButtonRelease-1>", lambda e: self.finalizar_desenho(e, tool_var.get(), color_var.get(), width_var.get()))
         
-        # 🔥 CORREÇÃO: Remover transient e grab_set
-        # editor.transient(parent)  # REMOVIDO
-        # editor.grab_set()         # REMOVIDO
+        # Centralizar
+        editor.transient(parent)
+        editor.grab_set()
 
     def iniciar_desenho(self, event, tool):
         self.start_x = event.x
