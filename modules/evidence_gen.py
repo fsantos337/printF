@@ -146,30 +146,6 @@ class EvidenceGeneratorModule:
             return tk.Entry(parent, bg='white', fg='#2c3e50', 
                           relief="solid", bd=1, **kwargs)
 
-    def _create_styled_listbox(self, parent, **kwargs):
-        """Cria Listbox com estilos aplicados para Liquid Glass"""
-        if self.using_liquid_glass and self.style_manager:
-            # Para Liquid Glass, usar cores escuras
-            listbox = tk.Listbox(parent, 
-                               bg=self.style_manager.BG_SECONDARY,
-                               fg=self.style_manager.TEXT_PRIMARY,
-                               selectbackground=self.style_manager.ACCENT_PRIMARY,
-                               selectforeground=self.style_manager.TEXT_PRIMARY,
-                               insertbackground=self.style_manager.TEXT_PRIMARY,
-                               relief="flat",
-                               **kwargs)
-        else:
-            # Fallback para estilo padrão
-            listbox = tk.Listbox(parent, 
-                               bg='white', 
-                               fg='#2c3e50',
-                               selectbackground='#3498db',
-                               selectforeground='white',
-                               relief="solid",
-                               bd=1,
-                               **kwargs)
-        return listbox
-
     def _salvar_metadata(self):
         """Salva os metadados no arquivo JSON"""
         if self.metadata_path:
@@ -234,21 +210,48 @@ class EvidenceGeneratorModule:
         return ""
     
     def show(self):
-        """Mostra a interface do módulo - CORREÇÃO PARA EVITAR MINIMIZAÇÃO"""
+        """CORREÇÃO CRÍTICA: Mostra a interface garantindo visibilidade total"""
         if not self.root:
             self._create_interface()
         
-        # 🔥 CORREÇÃO: Garantir que a janela fique visível corretamente
-        self.root.deiconify()  # Garante que a janela não está minimizada
-        self.root.lift()       # Traz para frente
-        self.root.focus_set()  # Define o foco
-        
-        # 🔥 CORREÇÃO ADICIONAL: Remover qualquer atributo que force minimização
+        # 🔥 CORREÇÃO COMPLETA: Garantir que a janela fique TOTALMENTE visível
         try:
-            self.root.attributes('-zoomed', False)  # Remove estado maximizado se existir
-            self.root.state('normal')               # Garante estado normal
-        except:
-            pass
+            # Primeiro garantir estado normal
+            self.root.state('normal')
+            self.root.attributes('-zoomed', False)
+            self.root.attributes('-topmost', True)  # Forçar ficar no topo temporariamente
+            
+            # Tornar visível
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+            
+            # Atualizar para garantir renderização
+            self.root.update_idletasks()
+            self.root.update()
+            
+            # 🔥 NOVA CORREÇÃO: Remover transient para evitar conflito com main
+            try:
+                self.root.transient(None)
+            except:
+                pass
+            
+            # Remover o topmost após um breve período
+            self.root.after(1000, lambda: self.root.attributes('-topmost', False))
+            
+            print("✅ Módulo EvidenceGeneratorModule mostrado com sucesso")
+            
+        except Exception as e:
+            print(f"❌ Erro ao mostrar módulo: {e}")
+            # Fallback: recriar a interface completamente
+            try:
+                if self.root:
+                    self.root.destroy()
+                self.root = None
+                self._create_interface()
+                self.root.deiconify()
+            except Exception as e2:
+                print(f"❌ Falha crítica ao recriar interface: {e2}")
 
     def _center_on_parent(self):
         """Centraliza a janela do módulo em relação à janela principal"""
@@ -273,15 +276,15 @@ class EvidenceGeneratorModule:
                 self.root.eval('tk::PlaceWindow . center')
 
     def _create_interface(self):
-        """Cria a interface do módulo - CORREÇÃO PARA EVITAR PROBLEMAS DE FOCUS"""
+        """CORREÇÃO: Cria interface sem usar transient ou grab_set que conflitam com main"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Gerador de Documentos de Evidências")
         self.root.geometry("500x300")
         self.root.resizable(False, False)
         
-        # 🔥 CORREÇÃO: Configurar para não minimizar automaticamente
-        self.root.transient(self.parent)  # Define como janela filha
-        self.root.grab_set()              # Mantém o foco
+        # 🔥 CORREÇÃO: Remover transient e grab_set que causam conflito com main
+        # self.root.transient(self.parent)  # REMOVIDO - causa conflito
+        # self.root.grab_set()              # REMOVIDO - causa conflito
         
         # Aplicar estilos
         self._apply_styles(self.root)
@@ -382,14 +385,15 @@ class EvidenceGeneratorModule:
         """CORREÇÃO: Janela de configuração agora retorna True corretamente"""
         config_window = tk.Toplevel(self.root)
         config_window.title("Configuração de Arquivo")
-        config_window.geometry("600x500")
+        config_window.geometry("600x400")
         config_window.resizable(False, False)
         
         # Aplicar estilos
         self._apply_styles(config_window)
         
-        config_window.transient(self.root)
-        config_window.grab_set()
+        # 🔥 CORREÇÃO: Remover transient e grab_set que causam conflito
+        # config_window.transient(self.root)  # REMOVIDO
+        # config_window.grab_set()            # REMOVIDO
         
         main_frame = self._create_styled_frame(config_window, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -442,47 +446,37 @@ class EvidenceGeneratorModule:
             dir_path = filedialog.askdirectory(title="Selecione o diretório onde estão as evidências")
             if dir_path:
                 self.dir_var.set(dir_path)
-                atualizar_lista_arquivos(dir_path)
+                atualizar_contador_arquivos(dir_path)
         
         self._create_styled_button(dir_frame, text="Procurar", 
                                   command=selecionar_diretorio, style_type="glass").pack(side=tk.RIGHT)
         
-        # Frame para exibir a lista de arquivos
-        file_list_frame = self._create_styled_frame(main_frame)
-        file_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
+        # Frame para mostrar informações
+        info_frame = self._create_styled_frame(main_frame)
+        info_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
         
         if self.using_liquid_glass:
-            file_list_scrollbar = ttk.Scrollbar(file_list_frame, style="Glass.Vertical.TScrollbar")
+            self.file_count_label = ttk.Label(info_frame, text="Nenhum arquivo de imagem encontrado",
+                                             style="Glass.TLabel", font=("Arial", 12))
         else:
-            file_list_scrollbar = tk.Scrollbar(file_list_frame)
-        file_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            self.file_count_label = tk.Label(info_frame, text="Nenhum arquivo de imagem encontrado",
+                                           bg='#f5f5f5', fg='#2c3e50', font=("Arial", 12))
+        self.file_count_label.pack(anchor="w", pady=(10, 5))
         
-        # Listbox para mostrar arquivos encontrados
-        self.file_listbox = self._create_styled_listbox(file_list_frame, 
-                                                       yscrollcommand=file_list_scrollbar.set, 
-                                                       height=8)
-        self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        file_list_scrollbar.config(command=self.file_listbox.yview)
-        
+        # Label informativa sobre formatos suportados
         if self.using_liquid_glass:
-            self.file_count_label = ttk.Label(main_frame, text="Nenhum arquivo de imagem encontrado",
-                                             style="Glass.TLabel")
+            formatos_label = ttk.Label(info_frame, 
+                                     text=f"Formatos suportados: {', '.join(self.supported_extensions)}",
+                                     style="Glass.TLabel", font=("Arial", 9))
         else:
-            self.file_count_label = tk.Label(main_frame, text="Nenhum arquivo de imagem encontrado",
-                                           bg='#f5f5f5', fg='#2c3e50', font=("Arial", 9))
-        self.file_count_label.pack(anchor="w", pady=(0, 10))
+            formatos_label = tk.Label(info_frame, 
+                                    text=f"Formatos suportados: {', '.join(self.supported_extensions)}",
+                                    bg='#f5f5f5', fg='#7f8c8d', font=("Arial", 9))
+        formatos_label.pack(anchor="w", pady=(0, 10))
         
-        def atualizar_lista_arquivos(dir_path):
-            """CORREÇÃO: Atualiza lista com múltiplos formatos de imagem"""
-            self.file_listbox.delete(0, tk.END)
+        def atualizar_contador_arquivos(dir_path):
+            """Atualiza o contador de arquivos de imagem"""
             image_files = self.carregar_evidencias(dir_path)
-            
-            for file_path in image_files:
-                filename = os.path.basename(file_path)
-                # Mostra também o timestamp para referência
-                timestamp = datetime.fromtimestamp(os.path.getmtime(file_path))
-                ext = os.path.splitext(filename)[1].upper()
-                self.file_listbox.insert(tk.END, f"{filename} ({timestamp.strftime('%H:%M:%S')}) [{ext}]")
             
             if image_files:
                 self.file_count_label.config(text=f"{len(image_files)} arquivo(s) de imagem encontrado(s)")
@@ -527,7 +521,7 @@ class EvidenceGeneratorModule:
         
         self._create_styled_button(btn_frame, text="Gerar Documento", 
                                   command=iniciar_geracao, style_type="accent").pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(btn_frame, text="Cancelar", 
+        self._create_styled_button(btn_frame, text="Voltar", 
                                   command=config_window.destroy, style_type="glass").pack(side=tk.LEFT, padx=5)
         
         self.root.wait_window(config_window)
@@ -783,7 +777,10 @@ class EvidenceGeneratorModule:
             cancelar_processamento()
 
         popup.protocol("WM_DELETE_WINDOW", on_closing)
-        popup.grab_set()
+        
+        # 🔥 CORREÇÃO: Remover grab_set do popup
+        # popup.grab_set()  # REMOVIDO - causa conflito
+        
         self.root.wait_window(popup)
         
         if self.processamento_cancelado:
@@ -971,9 +968,9 @@ class EvidenceGeneratorModule:
         self.canvas.bind("<B1-Motion>", lambda e: self.desenhar(e, tool_var.get()))
         self.canvas.bind("<ButtonRelease-1>", lambda e: self.finalizar_desenho(e, tool_var.get(), color_var.get(), width_var.get()))
         
-        # Centralizar
-        editor.transient(parent)
-        editor.grab_set()
+        # 🔥 CORREÇÃO: Remover transient e grab_set
+        # editor.transient(parent)  # REMOVIDO
+        # editor.grab_set()         # REMOVIDO
 
     def iniciar_desenho(self, event, tool):
         self.start_x = event.x
