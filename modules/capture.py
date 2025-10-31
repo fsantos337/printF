@@ -7,7 +7,7 @@ from docx.shared import Inches
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import pyautogui
 from pynput import mouse, keyboard
-from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageGrab 
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageGrab, ImageFilter  # 🔥 ADICIONADO ImageFilter
 from datetime import datetime
 import math
 import re
@@ -1613,12 +1613,13 @@ class CaptureModule:
         icon_frame = self._create_styled_frame(tools_frame)
         icon_frame.pack(side=tk.LEFT, padx=5)
         
-        # Ícones emoji para cada ferramenta
+        # 🔥 ADICIONADO: Ferramenta de mosaico
         tool_icons = {
             "rectangle": "⬜",   # Retângulo
             "circle": "🔴",      # Círculo  
             "arrow": "👉",       # Seta - Mão apontando
-            "text": "🆎"         # Texto - Botão AB
+            "text": "🆎",        # Texto - Botão AB
+            "blur": "🌀"         # Mosaico - NOVO
         }
 
         # Função para criar botões com estilo consistente
@@ -1720,6 +1721,11 @@ class CaptureModule:
                 elif elem_type == "text":
                     x, y = scaled_coords
                     self.canvas.create_text(x, y, text=text, fill=color, font=("Arial", 12), anchor="nw")
+                # 🔥 ADICIONADO: Caso para mosaico
+                elif elem_type == "blur":
+                    x1, y1, x2, y2 = scaled_coords
+                    # Desenhar um retângulo tracejado para representar a área de blur
+                    self.canvas.create_rectangle(x1, y1, x2, y2, outline="#FF00FF", width=2, dash=(5,5))
             
             # Desenha elemento temporário durante a criação
             if self.temp_element:
@@ -1735,6 +1741,10 @@ class CaptureModule:
                 elif elem_type == "arrow":
                     x1, y1, x2, y2 = scaled_coords
                     self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
+                # 🔥 ADICIONADO: Caso temporário para mosaico
+                elif elem_type == "blur":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_rectangle(x1, y1, x2, y2, outline="#FF00FF", width=2, dash=(5,5))
         
         def draw_arrow_on_canvas(x1, y1, x2, y2, color, width):
             # Desenha a linha da seta
@@ -1781,6 +1791,14 @@ class CaptureModule:
                     self.temp_element = ("rectangle", [x1_norm, y1_norm, x2_norm, y2_norm], color, width, "")
                 elif tool == "arrow":
                     self.temp_element = ("arrow", [ix1, iy1, ix2, iy2], color, width, "")
+                # 🔥 ADICIONADO: Caso para mosaico
+                elif tool == "blur":
+                    # Para blur, também usamos coordenadas normalizadas
+                    x1_norm = min(ix1, ix2)
+                    y1_norm = min(iy1, iy2)
+                    x2_norm = max(ix1, ix2)
+                    y2_norm = max(iy1, iy2)
+                    self.temp_element = ("blur", [x1_norm, y1_norm, x2_norm, y2_norm], "#FF00FF", 2, "")
                 
                 refresh_display()
         
@@ -1814,6 +1832,15 @@ class CaptureModule:
                 
                 elif tool == "arrow":
                     self.elements.append(("arrow", [ix1, iy1, ix2, iy2], color, width, ""))
+                
+                # 🔥 ADICIONADO: Caso para mosaico
+                elif tool == "blur":
+                    # Garante que x2 >= x1 and y2 >= y1
+                    x1_norm = min(ix1, ix2)
+                    y1_norm = min(iy1, iy2)
+                    x2_norm = max(ix1, ix2)
+                    y2_norm = max(iy1, iy2)
+                    self.elements.append(("blur", [x1_norm, y1_norm, x2_norm, y2_norm], "", 0, ""))
                 
                 elif tool == "text":
                     # Para texto, pede o conteúdo e adiciona na posição clicada
@@ -1900,6 +1927,15 @@ class CaptureModule:
                     
                     # Desenha texto diretamente
                     draw.text((x, y), text, fill=color, font=font)
+                
+                # 🔥 ADICIONADO: Aplicar mosaico
+                elif elem_type == "blur":
+                    x1, y1, x2, y2 = coords
+                    # Aplicar efeito de blur na área selecionada
+                    region = self.editing_img.crop((x1, y1, x2, y2))
+                    # Aumentar o valor do radius para um blur mais forte
+                    blurred_region = region.filter(ImageFilter.GaussianBlur(15))
+                    self.editing_img.paste(blurred_region, (x1, y1, x2, y2))
             
             self.editing_img.convert("RGB").save(caminho_print, "PNG")
             messagebox.showinfo("Edição", "Evidência atualizada com sucesso!")
