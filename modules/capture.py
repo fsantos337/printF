@@ -80,6 +80,9 @@ class CaptureModule:
         self.manter_evidencias = None
         self.modo_captura = "ocultar"  # Valores: "manter", "ocultar"
         
+        # 🔥 NOVO: Controle para evidenciar clique (VALOR PADRÃO: True)
+        self.evidenciar_clique = True
+        
         # 🔥 NOVOS ATRIBUTOS PARA PASTA AUTOMÁTICA
         self.pasta_automatica = False
         self.pasta_automatica_path = None
@@ -95,6 +98,17 @@ class CaptureModule:
         self.canvas = None
         self.canvas_img = None
         self.scale_factor = 1.0
+        
+        # 🔥 CONSTANTES PARA TIMESTAMP (MESMO DO GRAVADOR_EVIDENCIAS)
+        self.TIMESTAMP_TAMANHO_PADRAO = 24
+        self.TIMESTAMP_POSICAO_PADRAO_X = 0.85  # Mais para a direita
+        self.TIMESTAMP_POSICAO_PADRAO_Y = 0.92  # Mais para baixo
+        
+        # 🔥 NOVO: Controle para mover timestamp (igual ao gravador_evidencias.py)
+        self.moving_timestamp = False
+        self.timestamp_drag_data = {"x": 0, "y": 0, "item": None}
+        self.last_mouse_pos = None
+        self.timestamp_pos = None
         
         # Listener de teclado para atalhos
         self.listener_keyboard = None
@@ -415,7 +429,7 @@ class CaptureModule:
             return self.capture_tela_completa_mss(x, y)
         else:
             # Modo ocultar: captura apenas área de trabalho (sem barra)
-            return self.capture_work_area_pyautogui(x, y)
+            return self.capture_work_area_multi_monitor(x, y)
 
     def capture_tela_completa_mss(self, x, y):
         """
@@ -531,29 +545,170 @@ class CaptureModule:
             except:
                 raise Exception(f"Falha completa na captura de tela: {str(e)}")
 
-    def capture_work_area_pyautogui(self, x, y):
+    def capture_work_area_multi_monitor(self, x, y):
         """
-        Captura apenas a área de trabalho (SEM barra de tarefas) usando pyautogui
-        Este método é usado no modo "ocultar"
+        🔥 CORREÇÃO CRÍTICA: Captura apenas a área de trabalho (SEM barra de tarefas) 
+        usando a mesma lógica robusta do gravador_evidencias.py
         """
         try:
-            # Captura com pyautogui (já captura sem a barra automaticamente)
+            # 🔥 ESTRATÉGIA 1: Win32 API + MSS para multi-monitor (MESMA DO GRAVADOR)
+            if WIN32_AVAILABLE and MSS_AVAILABLE:
+                try:
+                    # Encontrar o monitor que contém o ponto (x, y)
+                    monitor_handle = win32api.MonitorFromPoint((x, y), win32con.MONITOR_DEFAULTTONEAREST)
+                    monitor_info = win32gui.GetMonitorInfo(monitor_handle)
+                    
+                    # 🔥 USAR WORK AREA (área sem barra de tarefas) - CHAVE DA CORREÇÃO
+                    work_area = monitor_info["Work"]  # (left, top, right, bottom)
+                    
+                    with mss.mss() as sct:
+                        # Configurar captura específica para o monitor encontrado
+                        monitor_mss = {
+                            "left": work_area[0],
+                            "top": work_area[1], 
+                            "width": work_area[2] - work_area[0],
+                            "height": work_area[3] - work_area[1]
+                        }
+                        
+                        screenshot = sct.grab(monitor_mss)
+                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                        
+                        # Calcular coordenadas relativas à work area do monitor
+                        rel_x = x - work_area[0]
+                        rel_y = y - work_area[1]
+                        
+                        metodo_utilizado = f"Win32+MSS Work Area Monitor {work_area}"
+                        print(f"✅ CAPTURA SEM BARRA - Monitor Work Area {work_area} | Coord: ({rel_x},{rel_y})")
+                        
+                        return img, (rel_x, rel_y), metodo_utilizado
+                        
+                except Exception as e:
+                    print(f"⚠️  Win32+MSS falhou (capturando com alternativa): {e}")
+
+            # 🔥 ESTRATÉGIA 2: MSS puro para multi-monitor (sem Win32)
+            if MSS_AVAILABLE:
+                try:
+                    with mss.mss() as sct:
+                        monitor_encontrado = None
+                        
+                        # Procurar em todos os monitores (exceto o virtual)
+                        for i, monitor in enumerate(sct.monitors[1:], 1):
+                            if (monitor["left"] <= x < monitor["left"] + monitor["width"] and
+                                monitor["top"] <= y < monitor["top"] + monitor["height"]):
+                                monitor_encontrado = monitor
+                                break
+
+                        # Fallback para primeiro monitor se não encontrou
+                        if not monitor_encontrado:
+                            monitor_encontrado = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                            print(f"⚠️  Monitor não encontrado para coordenadas ({x},{y}), usando fallback")
+
+                        # 🔥 ESTIMAR WORK AREA (recortar barra de tarefas) - CHAVE DA CORREÇÃO
+                        barra_altura = self.estimativa_segura_barra_tarefas(monitor_encontrado["height"])
+                        work_area = {
+                            "left": monitor_encontrado["left"],
+                            "top": monitor_encontrado["top"], 
+                            "width": monitor_encontrado["width"],
+                            "height": monitor_encontrado["height"] - barra_altura
+                        }
+
+                        # Capturar a work area do monitor
+                        screenshot = sct.grab(work_area)
+                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+                        # Calcular coordenadas relativas ao monitor
+                        rel_x = x - work_area["left"]
+                        rel_y = y - work_area["top"]
+
+                        metodo_utilizado = f"MSS Work Area Monitor {work_area['width']}x{work_area['height']}"
+                        print(f"✅ CAPTURA SEM BARRA - MSS Work Area | Coord: ({rel_x},{rel_y})")
+
+                        return img, (rel_x, rel_y), metodo_utilizado
+                        
+                except Exception as e:
+                    print(f"⚠️  MSS falhou (capturando com alternativa): {e}")
+
+            # 🔥 ESTRATÉGIA 3: ScreenInfo + ImageGrab para multi-monitor
+            try:
+                monitors = screeninfo.get_monitors()
+                target_monitor = None
+                
+                # Encontrar o monitor que contém as coordenadas (x, y)
+                for monitor in monitors:
+                    if (monitor.x <= x < monitor.x + monitor.width and
+                        monitor.y <= y < monitor.y + monitor.height):
+                        target_monitor = monitor
+                        break
+                
+                if target_monitor:
+                    # 🔥 ESTIMAR WORK AREA (recortar barra) - CHAVE DA CORREÇÃO
+                    barra_altura = self.estimativa_segura_barra_tarefas(target_monitor.height)
+                    work_area = (
+                        target_monitor.x,
+                        target_monitor.y,
+                        target_monitor.x + target_monitor.width,
+                        target_monitor.y + target_monitor.height - barra_altura
+                    )
+                    
+                    screenshot = ImageGrab.grab(bbox=work_area)
+                    rel_x = x - work_area[0]
+                    rel_y = y - work_area[1]
+                    
+                    metodo_utilizado = f"ScreenInfo Work Area {work_area}"
+                    print(f"✅ CAPTURA SEM BARRA - ScreenInfo Work Area | Coord: ({rel_x},{rel_y})")
+                    
+                    return screenshot, (rel_x, rel_y), metodo_utilizado
+                    
+            except Exception as e:
+                print(f"⚠️  ScreenInfo falhou: {e}")
+
+            # 🔥 ESTRATÉGIA 4: Fallback - recorte manual do monitor primário
+            try:
+                # Capturar tela completa primeiro
+                screenshot_full = pyautogui.screenshot()
+                screen_width, screen_height = screenshot_full.size
+                
+                # Verificar se as coordenadas estão no monitor primário
+                if 0 <= x < screen_width and 0 <= y < screen_height:
+                    # Recortar barra do primário
+                    barra_altura = self.estimativa_segura_barra_tarefas(screen_height)
+                    work_area = (0, 0, screen_width, screen_height - barra_altura)
+                    screenshot = screenshot_full.crop(work_area)
+                    
+                    rel_x = x
+                    rel_y = y
+                    if y > screen_height - barra_altura:
+                        rel_y = screen_height - barra_altura - 5
+                        
+                    metodo_utilizado = f"Fallback Primário Recortado"
+                    print(f"⚠️  CAPTURA SEM BARRA (Primário) | Coord: ({rel_x},{rel_y})")
+                    
+                    return screenshot, (rel_x, rel_y), metodo_utilizado
+                else:
+                    # Coordenadas fora do primário - retornar tela completa como fallback
+                    metodo_utilizado = "Fallback - Tela Completa (fora do primário)"
+                    print(f"❌ Coordenadas ({x},{y}) fora do monitor primário, usando tela completa")
+                    return screenshot_full, (x, y), metodo_utilizado
+                    
+            except Exception as e:
+                print(f"❌ Fallback falhou: {e}")
+
+            # 🔥 ESTRATÉGIA 5: Último recurso
             screenshot = pyautogui.screenshot()
-            
-            metodo_utilizado = "PyAutoGUI - Área de Trabalho (sem barra)"
-            print(f"✅ CAPTURA PYAUTOGUI - Área de Trabalho | Coord: ({x},{y})")
+            metodo_utilizado = "Fallback Extremo - Tela Completa"
+            print(f"❌ TODOS OS MÉTODOS FALHARAM - Retornando tela completa")
             
             return screenshot, (x, y), metodo_utilizado
-            
+
         except Exception as e:
-            print(f"❌ Falha na captura com pyautogui: {e}")
+            print(f"❌ Falha crítica na captura sem barra: {e}")
             # Fallback extremo
             screenshot = pyautogui.screenshot()
-            return screenshot, (x, y), f"Fallback - Erro: {str(e)}"
+            return screenshot, (x, y), f"Erro Crítico: {str(e)}"
 
     def estimativa_segura_barra_tarefas(self, altura_tela):
         """
-        Estimativa conservadora da altura da barra de tarefas
+        Estimativa conservadora da altura da barra de tarefas - MESMA DO GRAVADOR
         """
         if altura_tela >= 2160:  # 4K
             return 100
@@ -564,22 +719,22 @@ class CaptureModule:
         else:  # Resoluções menores
             return 60
         
-    # 🔥 NOVA FUNÇÃO: APLICAR TIMESTAMP MODERNO COM FUNDO
+    # 🔥 NOVA FUNÇÃO: APLICAR TIMESTAMP MODERNO COM FUNDO (APENAS NA GERAÇÃO DO DOCX)
     def aplicar_timestamp_moderno(self, caminho_imagem, evidencia_meta):
-        """Aplica o timestamp com fundo semi-transparente e texto branco"""
+        """Aplica o timestamp com fundo semi-transparente e texto centralizado - APENAS NA GERAÇÃO DO DOCX"""
         img = Image.open(caminho_imagem).convert("RGBA")
         draw = ImageDraw.Draw(img)
         
         # Calcular posição em pixels
         img_width, img_height = img.size
-        pos_x = int(evidencia_meta["timestamp_posicao"]["x"] * img_width)
-        pos_y = int(evidencia_meta["timestamp_posicao"]["y"] * img_height)
+        pos_x_percent = evidencia_meta["timestamp_posicao"]["x"]
+        pos_y_percent = evidencia_meta["timestamp_posicao"]["y"]
         
         # Configurações do texto
         texto = evidencia_meta["timestamp_texto"]
         texto_cor = evidencia_meta["timestamp_cor"]  # Branco
         fundo_cor = evidencia_meta.get("timestamp_fundo", "#000000B2")  # Preto 70%
-        tamanho = evidencia_meta["timestamp_tamanho"]
+        tamanho = evidencia_meta.get("timestamp_tamanho", self.TIMESTAMP_TAMANHO_PADRAO)
         
         # Converter cor de fundo para RGBA
         if fundo_cor.startswith("#") and len(fundo_cor) == 9:  # Formato #RRGGBBAA
@@ -597,37 +752,69 @@ class CaptureModule:
         except:
             font = ImageFont.load_default()
         
-        # 🔥 CALCULAR TAMANHO DO TEXTO PARA CRIAR FUNDO
+        # 🔥 CALCULAR TAMANHO DO TEXTO PARA CENTRALIZAR
         bbox = draw.textbbox((0, 0), texto, font=font)
         texto_largura = bbox[2] - bbox[0]
         texto_altura = bbox[3] - bbox[1]
         
         # 🔥 DEFINIR PADDING E CANTOS ARREDONDADOS
-        padding = 10
+        padding_horizontal = 20
+        padding_vertical = 12
         borda_radius = 8
         
-        # Coordenadas do fundo
-        fundo_x1 = pos_x - padding
-        fundo_y1 = pos_y - padding
-        fundo_x2 = pos_x + texto_largura + padding
-        fundo_y2 = pos_y + texto_altura + padding
+        # 🔥 CALCULAR POSIÇÃO FINAL DO FUNDO (centralizado na posição especificada)
+        fundo_largura = texto_largura + (padding_horizontal * 2)
+        fundo_altura = texto_altura + (padding_vertical * 2)
+        
+        # Calcular coordenadas do fundo baseado na posição percentual
+        fundo_x1 = int((img_width * pos_x_percent) - (fundo_largura / 2))  # Centralizado horizontalmente
+        fundo_y1 = int((img_height * pos_y_percent) - (fundo_altura / 2))   # Centralizado verticalmente
+        fundo_x2 = fundo_x1 + fundo_largura
+        fundo_y2 = fundo_y1 + fundo_altura
+        
+        # 🔥 GARANTIR que o fundo não saia dos limites da imagem
+        margem = 10
+        if fundo_x1 < margem:
+            fundo_x1 = margem
+            fundo_x2 = fundo_x1 + fundo_largura
+        elif fundo_x2 > img_width - margem:
+            fundo_x2 = img_width - margem
+            fundo_x1 = fundo_x2 - fundo_largura
+            
+        if fundo_y1 < margem:
+            fundo_y1 = margem
+            fundo_y2 = fundo_y1 + fundo_altura
+        elif fundo_y2 > img_height - margem:
+            fundo_y2 = img_height - margem
+            fundo_y1 = fundo_y2 - fundo_altura
+        
+        # 🔥 CORREÇÃO CRÍTICA: Calcular a posição vertical do texto considerando a métrica da fonte
+        bbox = draw.textbbox((0, 0), texto, font=font)
+        texto_ascendente = -bbox[1]  # A parte "acima" da linha de base
+        texto_largura = bbox[2] - bbox[0]
+        texto_altura_total = bbox[3] - bbox[1]
+
+        # 🔥 CALCULAR POSIÇÃO DO TEXTO (verdadeiramente centralizado no fundo)
+        texto_x = fundo_x1 + padding_horizontal
+        # Ajuste fino para centralização vertical perfeita
+        texto_y = fundo_y1 + (fundo_altura - texto_altura_total) // 2 + texto_ascendente
         
         # 🔥 DESENHAR FUNDO COM CANTOS ARREDONDADOS
         # Criar máscara para cantos arredondados
-        mask = Image.new("L", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), 0)
+        mask = Image.new("L", (fundo_largura, fundo_altura), 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.rounded_rectangle(
-            [0, 0, fundo_x2 - fundo_x1, fundo_y2 - fundo_y1],
+            [0, 0, fundo_largura, fundo_altura],
             radius=borda_radius,
             fill=255
         )
         
         # Aplicar fundo semi-transparente
-        fundo_img = Image.new("RGBA", (fundo_x2 - fundo_x1, fundo_y2 - fundo_y1), fundo_rgba)
+        fundo_img = Image.new("RGBA", (fundo_largura, fundo_altura), fundo_rgba)
         img.paste(fundo_img, (fundo_x1, fundo_y1), mask)
         
-        # 🔥 DESENHAR TEXTO BRANCO (SEM BORDAS PRETAS)
-        draw.text((pos_x, pos_y), texto, fill=texto_cor, font=font)
+        # 🔥 DESENHAR TEXTO BRANCO VERDADEIRAMENTE CENTRALIZADO
+        draw.text((texto_x, texto_y), texto, fill=texto_cor, font=font)
         
         # Salvar a imagem
         img.save(caminho_imagem)
@@ -679,7 +866,7 @@ class CaptureModule:
     def mostrar_janela_configuracao(self):
         config_window = tk.Toplevel(self.root)
         config_window.title("Configuração de Gravação")
-        config_window.geometry("600x600")
+        config_window.geometry("700x800")  # 🔥 Aumentei a altura para caber o novo checkbox
         config_window.resizable(False, False)
         
         # 🔥 APLICAR ESTILO À JANELA
@@ -722,14 +909,14 @@ class CaptureModule:
         if self.using_liquid_glass and self.style_manager:
             info_label = ttk.Label(
                 main_frame, 
-                text="Se não selecionar um destino, será criada uma pasta automaticamente no mesmo diretório do template com o nome do documento.", 
+                text="Se não selecionar um destino, será criada uma pasta automaticamente no mesmo diretório do template.", 
                 style="Subtitle.TLabel",
                 justify=tk.LEFT
             )
         else:
             info_label = tk.Label(
                 main_frame, 
-                text="Se não selecionar um destino, será criada uma pasta automaticamente no mesmo diretório do template com o nome do documento.", 
+                text="Se não selecionar um destino, será criada uma pasta automaticamente no mesmo diretório do template.", 
                 font=("Arial", 9), 
                 foreground="gray",
                 justify=tk.LEFT,
@@ -799,6 +986,51 @@ class CaptureModule:
                 bg='#f5f5f5'
             )
         rb2.pack(anchor="w", pady=2)
+        
+        # 🔥 NOVO: Checkbox para evidenciar clique
+        self._create_styled_label(main_frame, text="Opções de Captura:", style_type="title").pack(anchor="w", pady=(20, 10))
+        
+        # Variável para o checkbox - valor padrão True (marcado)
+        self.evidenciar_clique_var = tk.BooleanVar(value=True)
+        
+        # Checkbox para evidenciar clique
+        evidenciar_frame = self._create_styled_frame(main_frame)
+        evidenciar_frame.pack(fill=tk.X, pady=5)
+        
+        if self.using_liquid_glass and self.style_manager:
+            evidenciar_checkbox = ttk.Checkbutton(
+                evidenciar_frame, 
+                text="Mostrar círculo amarelo no local do clique",
+                variable=self.evidenciar_clique_var,
+                style="Glass.TCheckbutton"
+            )
+        else:
+            evidenciar_checkbox = tk.Checkbutton(
+                evidenciar_frame, 
+                text="Mostrar círculo amarelo no local do clique",
+                variable=self.evidenciar_clique_var,
+                bg='#f5f5f5'
+            )
+        evidenciar_checkbox.pack(anchor="w")
+        
+        # Label informativa
+        if self.using_liquid_glass and self.style_manager:
+            info_evidenciar = ttk.Label(
+                main_frame, 
+                text="Se marcado, um círculo amarelo semi-transparente será mostrado no local onde você clicou.", 
+                style="Subtitle.TLabel",
+                justify=tk.LEFT
+            )
+        else:
+            info_evidenciar = tk.Label(
+                main_frame, 
+                text="Se marcado, um círculo amarelo semi-transparente será mostrado no local onde você clicou.", 
+                font=("Arial", 9), 
+                foreground="gray",
+                justify=tk.LEFT,
+                bg='#f5f5f5'
+            )
+        info_evidenciar.pack(anchor="w", pady=(0, 15))
         
         # Checkbox para manter evidências
         self._create_styled_label(main_frame, text="Opções de saída:", style_type="title").pack(anchor="w", pady=(20, 10))
@@ -902,6 +1134,9 @@ class CaptureModule:
             
             # 🔥 Armazena a escolha do modo de captura
             self.modo_captura = self.modo_captura_var.get()
+            
+            # 🔥 NOVO: Armazena a preferência de evidenciar clique
+            self.evidenciar_clique = self.evidenciar_clique_var.get()
             
             # 🔥 VERIFICAÇÃO ADICIONAL: Limpar qualquer estado residual
             self.gravando = False
@@ -1060,20 +1295,38 @@ class CaptureModule:
         messagebox.showinfo("Gravação Iniciada", mensagem)
 
     def capturar_tela(self, x, y):
-        """Captura a tela e salva a evidência"""
+        """Captura a tela e salva a evidência - SEM APLICAR TIMESTAMP NA IMAGEM"""
         try:
             # 🔥 CAPTURA INTELIGENTE BASEADA NO MODO SELECIONADO
             screenshot, (rel_x, rel_y), metodo_utilizado = self.capture_inteligente(x, y)
+            
+            # 🔥 MODIFICADO: Aplicar círculo apenas se configurado
+            if self.evidenciar_clique:
+                # Aplicar círculo amarelo semi-transparente no clique
+                img = screenshot.convert("RGBA")
+                overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
+                draw = ImageDraw.Draw(overlay)
+                r = 40  # Raio do círculo
+                
+                # Desenhar círculo amarelo semi-transparente no local do clique
+                draw.ellipse((rel_x-r, rel_y-r, rel_x+r, rel_y+r), fill=(255, 255, 0, 100))
+                final_img = Image.alpha_composite(img, overlay)
+                imagem_para_salvar = final_img.convert("RGB")
+                print(f"✅ Círculo amarelo aplicado nas coordenadas ({rel_x}, {rel_y})")
+            else:
+                # Usar imagem original sem círculo
+                imagem_para_salvar = screenshot
+                print(f"✅ Captura sem círculo nas coordenadas ({rel_x}, {rel_y})")
             
             # Gerar nome único para o arquivo
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"evidencia_{self.metadata['proximo_id']:04d}_{timestamp}.png"
             filepath = os.path.join(self.evidence_dir, filename)
             
-            # Salvar a imagem
-            screenshot.save(filepath, "PNG")
+            # Salvar a imagem (com ou sem círculo) - SEM TIMESTAMP
+            imagem_para_salvar.save(filepath, "PNG")
             
-            # 🔥 ADICIONAR METADADOS DA EVIDÊNCIA
+            # 🔥 ADICIONAR METADADOS DA EVIDÊNCIA (incluindo a opção de clique)
             evidencia_meta = {
                 "id": self.metadata['proximo_id'],
                 "arquivo": filename,
@@ -1082,17 +1335,19 @@ class CaptureModule:
                 "coordenadas_relativas": {"x": rel_x, "y": rel_y},
                 "metodo_captura": metodo_utilizado,
                 "modo_captura": self.modo_captura,
+                "evidenciar_clique": self.evidenciar_clique,  # 🔥 NOVO: Salvar esta preferência
                 "comentario": "",
                 "excluida": False,
+                # 🔥 CORREÇÃO CRÍTICA: TIMESTAMP SÓ NOS METADADOS, NÃO NA IMAGEM
                 "timestamp_texto": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-                "timestamp_cor": "#FFFFFF",  # Branco
-                "timestamp_tamanho": 16,
-                "timestamp_posicao": {"x": 0.02, "y": 0.02},  # Canto superior esquerdo
-                "timestamp_fundo": "#000000B2"  # Preto 70%
+                "timestamp_cor": "#FFFFFF",
+                "timestamp_tamanho": self.TIMESTAMP_TAMANHO_PADRAO,
+                "timestamp_posicao": {"x": self.TIMESTAMP_POSICAO_PADRAO_X, "y": self.TIMESTAMP_POSICAO_PADRAO_Y},
+                "timestamp_fundo": "#000000B2"
             }
             
-            # 🔥 APLICAR TIMESTAMP MODERNO
-            self.aplicar_timestamp_moderno(filepath, evidencia_meta)
+            # 🔥 CORREÇÃO: NÃO APLICAR TIMESTAMP NA IMAGEM DURANTE A CAPTURA
+            # O timestamp só será aplicado durante a geração do DOCX
             
             # Atualizar metadados
             self.metadata["evidencias"].append(evidencia_meta)
@@ -1256,7 +1511,7 @@ class CaptureModule:
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao adicionar comentário: {e}")
 
-    # 🔥 ADICIONADO: MÉTODOS DE NAVEGAÇÃO E EDIÇÃO
+    # 🔥 ADICIONADO: MÉTODOS DE NAVEGAÇÃO E EDIÇÃO (CORRIGIDOS)
     def mostrar_janela_navegacao(self):
         """Janela principal de navegação pelas evidências"""
         if self.popup and self.popup.winfo_exists():
@@ -1358,21 +1613,119 @@ class CaptureModule:
         
         self.popup.protocol("WM_DELETE_WINDOW", self.cancelar_processamento)
 
+    # 🔥 CORREÇÃO CRÍTICA: MESMA ABORDAGEM DO GRAVADOR_EVIDENCIAS.PY
     def atualizar_exibicao(self):
-        """Atualiza a exibição da evidência atual"""
+        """Atualiza a exibição da evidência atual - mesma abordagem do gravador_evidencias.py"""
         if not self.prints or self.current_index >= len(self.prints):
             return
             
         caminho_print = self.prints[self.current_index]
         
         try:
-            # Carrega e exibe a imagem com tamanho maior
-            img = Image.open(caminho_print)
+            # 🔥 CORREÇÃO: MESMA ABORDAGEM DO GRAVADOR_EVIDENCIAS.PY
+            # Carrega a imagem original do arquivo (SEM TIMESTAMP)
+            img = Image.open(caminho_print).convert("RGBA")
+            
+            # Obter metadados do timestamp
+            nome_arquivo = os.path.basename(caminho_print)
+            evidencia_meta = self.obter_metadados_evidencia(nome_arquivo)
+            
+            # 🔥 CORREÇÃO: APLICAR TIMESTAMP DINAMICAMENTE APENAS NA EXIBIÇÃO (não salva na imagem)
+            if evidencia_meta and evidencia_meta.get("timestamp_texto") and self.modo_captura == "ocultar":
+                draw = ImageDraw.Draw(img)
+                
+                # Calcular posição em pixels
+                img_width, img_height = img.size
+                pos_x_percent = evidencia_meta["timestamp_posicao"]["x"]
+                pos_y_percent = evidencia_meta["timestamp_posicao"]["y"]
+                
+                # Configurações do texto
+                texto = evidencia_meta["timestamp_texto"]
+                texto_cor = evidencia_meta["timestamp_cor"]
+                fundo_cor = evidencia_meta.get("timestamp_fundo", "#000000B2")
+                tamanho = evidencia_meta.get("timestamp_tamanho", self.TIMESTAMP_TAMANHO_PADRAO)
+                
+                # Usar fonte
+                try:
+                    font = ImageFont.truetype("arial.ttf", tamanho)
+                except:
+                    font = ImageFont.load_default()
+                
+                # 🔥 CALCULAR TAMANHO DO TEXTO PARA CENTRALIZAR (mesma lógica do gravador)
+                bbox = draw.textbbox((0, 0), texto, font=font)
+                texto_largura = bbox[2] - bbox[0]
+                texto_altura = bbox[3] - bbox[1]
+                
+                # 🔥 DEFINIR PADDING E CANTOS ARREDONDADOS
+                padding_horizontal = 20
+                padding_vertical = 12
+                borda_radius = 8
+                
+                # 🔥 CALCULAR POSIÇÃO FINAL DO FUNDO (centralizado)
+                fundo_largura = texto_largura + (padding_horizontal * 2)
+                fundo_altura = texto_altura + (padding_vertical * 2)
+                
+                # Calcular coordenadas do fundo baseado na posição percentual
+                fundo_x1 = int((img_width * pos_x_percent) - (fundo_largura / 2))
+                fundo_y1 = int((img_height * pos_y_percent) - (fundo_altura / 2))
+                fundo_x2 = fundo_x1 + fundo_largura
+                fundo_y2 = fundo_y1 + fundo_altura
+                
+                # 🔥 GARANTIR que o fundo não saia dos limites da imagem
+                margem = 10
+                if fundo_x1 < margem:
+                    fundo_x1 = margem
+                    fundo_x2 = fundo_x1 + fundo_largura
+                elif fundo_x2 > img_width - margem:
+                    fundo_x2 = img_width - margem
+                    fundo_x1 = fundo_x2 - fundo_largura
+                    
+                if fundo_y1 < margem:
+                    fundo_y1 = margem
+                    fundo_y2 = fundo_y1 + fundo_altura
+                elif fundo_y2 > img_height - margem:
+                    fundo_y2 = img_height - margem
+                    fundo_y1 = fundo_y2 - fundo_altura
+                
+                # 🔥 CORREÇÃO CRÍTICA: Calcular posição vertical do texto
+                bbox = draw.textbbox((0, 0), texto, font=font)
+                texto_ascendente = -bbox[1]
+                texto_largura = bbox[2] - bbox[0]
+                texto_altura_total = bbox[3] - bbox[1]
+
+                # 🔥 CALCULAR POSIÇÃO DO TEXTO (verdadeiramente centralizado)
+                texto_x = fundo_x1 + padding_horizontal
+                texto_y = fundo_y1 + (fundo_altura - texto_altura_total) // 2 + texto_ascendente
+                
+                # 🔥 DESENHAR FUNDO COM CANTOS ARREDONDADOS
+                mask = Image.new("L", (fundo_largura, fundo_altura), 0)
+                mask_draw = ImageDraw.Draw(mask)
+                mask_draw.rounded_rectangle(
+                    [0, 0, fundo_largura, fundo_altura],
+                    radius=borda_radius,
+                    fill=255
+                )
+                
+                # Aplicar fundo semi-transparente
+                if fundo_cor.startswith("#") and len(fundo_cor) == 9:
+                    r = int(fundo_cor[1:3], 16)
+                    g = int(fundo_cor[3:5], 16)
+                    b = int(fundo_cor[5:7], 16)
+                    a = int(fundo_cor[7:9], 16)
+                    fundo_rgba = (r, g, b, a)
+                else:
+                    fundo_rgba = (0, 0, 0, 178)
+
+                fundo_img = Image.new("RGBA", (fundo_largura, fundo_altura), fundo_rgba)
+                img.paste(fundo_img, (fundo_x1, fundo_y1), mask)
+
+                # 🔥 DESENHAR TEXTO BRANCO CENTRALIZADO
+                draw.text((texto_x, texto_y), texto, fill=texto_cor, font=font)
             
             # Obter o tamanho da área disponível para a imagem
             self.popup.update()
-            available_width = self.popup.winfo_width() - 40  # Margens
-            available_height = self.popup.winfo_height() - 250  # Espaço para controles
+            available_width = self.popup.winfo_width() - 40
+            available_height = self.popup.winfo_height() - 250
             
             # Ajustar a imagem para caber na área disponível
             img.thumbnail((available_width, available_height))
@@ -1383,7 +1736,6 @@ class CaptureModule:
             self.pos_label.config(text=f"Evidência {self.current_index + 1} de {len(self.prints)}")
             
             # Carrega comentário salvo
-            nome_arquivo = os.path.basename(caminho_print)
             comentario = self.obter_comentario(nome_arquivo)
             self.comment_entry.delete(0, tk.END)
             self.comment_entry.insert(0, comentario)
@@ -1397,6 +1749,13 @@ class CaptureModule:
             if evidencia["arquivo"] == nome_arquivo:
                 return evidencia.get("comentario", "")
         return ""
+
+    def obter_metadados_evidencia(self, nome_arquivo):
+        """Obtém os metadados completos da evidência - similar ao gravador_evidencias.py"""
+        for evidencia in self.metadata["evidencias"]:
+            if evidencia["arquivo"] == nome_arquivo:
+                return evidencia
+        return None
 
     def salvar_comentario(self):
         """Salva o comentário da evidência atual"""
@@ -1450,15 +1809,25 @@ class CaptureModule:
             self.current_index = numero - 1
             self.atualizar_exibicao()
 
+    # 🔥 CORREÇÃO: MÉTODO EDITAR EVIDENCIA ATUAL COM FUNCIONALIDADE DE MOVER TIMESTAMP
     def editar_evidencia_atual(self):
-        self.salvar_comentario()  # Salva automaticamente antes de navegar
+        self.salvar_comentario()
         if not self.prints or self.current_index >= len(self.prints):
             return
             
         caminho_print = self.prints[self.current_index]
-        self.abrir_editor(caminho_print, self.popup)
-        # Recarrega a imagem após edição
-        self.atualizar_exibicao()
+        
+        # 🔥 CORREÇÃO: Abrir editor e ATUALIZAR FORÇADAMENTE ao fechar
+        def ao_fechar_editor():
+            # 🔥 CORREÇÃO: Forçar recarregamento da imagem
+            self.atualizar_exibicao()
+            # 🔥 CORREÇÃO ADICIONAL: Recarregar a lista de prints para garantir sincronização
+            self.recarregar_evidencias()
+        
+        # Abrir editor e conectar evento de fechamento
+        editor = self.abrir_editor(caminho_print, self.popup)
+        if editor:
+            editor.protocol("WM_DELETE_WINDOW", lambda: [editor.destroy(), ao_fechar_editor()])
 
     def excluir_evidencia_atual(self):
         self.salvar_comentario()  # Salva automaticamente antes de navegar
@@ -1555,11 +1924,11 @@ class CaptureModule:
                 self.popup.destroy()
                 self.popup = None
 
-    # ---------- Editor de prints ----------
+    # ---------- Editor de prints (ATUALIZADO COM FUNCIONALIDADE DE MOVER TIMESTAMP E BLUR) ----------
     def abrir_editor(self, caminho_print, parent):
         editor = tk.Toplevel(parent)
         editor.title("Editor de Evidência")
-        editor.geometry("1200x800")
+        editor.geometry("1300x900")
         
         # 🔥 APLICAR ESTILO À JANELA
         self._apply_style_to_window(editor)
@@ -1576,7 +1945,7 @@ class CaptureModule:
         canvas_frame = self._create_styled_frame(main_frame)
         canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # Carrega a imagem original
+        # 🔥 CORREÇÃO: SEMPRE carregar a imagem ORIGINAL do arquivo (SEM TIMESTAMP)
         self.original_img = Image.open(caminho_print).convert("RGBA")
         img_w, img_h = self.original_img.size
         
@@ -1593,8 +1962,20 @@ class CaptureModule:
         # Variáveis para controle
         self.current_tk_img = ImageTk.PhotoImage(self.display_img)
         self.elements = []  # Lista de elementos desenhados
-        self.undo_stack = []  # PILHA PARA DESFAZER AÇÕES - NOVO
+        self.undo_stack = []  # PILHA PARA DESFAZER AÇÕES
         self.temp_element = None
+        
+        # 🔥 CORREÇÃO: Inicializar posição do timestamp (IGUAL AO GRAVADOR_EVIDENCIAS)
+        nome_arquivo = os.path.basename(caminho_print)
+        evidencia_meta = self.obter_metadados_evidencia(nome_arquivo)
+        
+        if evidencia_meta and self.modo_captura == "ocultar":
+            self.timestamp_pos = (
+                evidencia_meta["timestamp_posicao"]["x"],
+                evidencia_meta["timestamp_posicao"]["y"]
+            )
+        else:
+            self.timestamp_pos = (self.TIMESTAMP_POSICAO_PADRAO_X, self.TIMESTAMP_POSICAO_PADRAO_Y)
         
         # Canvas para a imagem
         self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg="gray")
@@ -1606,20 +1987,23 @@ class CaptureModule:
         color_var = tk.StringVar(value="#FF0000")   # VERMELHO COMO PADRÃO
         width_var = tk.IntVar(value=3)
         
-        # Ferramentas - SUBSTITUINDO RADIOBUTTONS POR ÍCONES EMOJI
+        # 🔥 CORREÇÃO: Variável para controle do modo mover timestamp (IGUAL AO GRAVADOR_EVIDENCIAS)
+        move_timestamp_var = tk.BooleanVar(value=False)
+        
+        # Ferramentas
         self._create_styled_label(tools_frame, text="Ferramenta:").pack(side=tk.LEFT, padx=5)
         
         # Frame para os botões de ícone
         icon_frame = self._create_styled_frame(tools_frame)
         icon_frame.pack(side=tk.LEFT, padx=5)
         
-        # 🔥 ADICIONADO: Ferramenta de mosaico
+        # 🔥 ADICIONADO: Ferramenta de mosaico (BLUR)
         tool_icons = {
             "rectangle": "⬜",   # Retângulo
             "circle": "🔴",      # Círculo  
             "arrow": "👉",       # Seta - Mão apontando
             "text": "🆎",        # Texto - Botão AB
-            "blur": "🌀"         # Mosaico - NOVO
+            "blur": "🌀"         # Mosaico - NOVO (ADICIONADO DO capture-blurT.py)
         }
 
         # Função para criar botões com estilo consistente
@@ -1653,7 +2037,7 @@ class CaptureModule:
 
         tool_var.trace("w", update_button_appearance)
         
-        # Controles de cor and espessura - APENAS CORES ESSENCIAIS
+        # Controles de cor and espessura
         color_frame = self._create_styled_frame(tools_frame)
         color_frame.pack(side=tk.LEFT, padx=20)
         
@@ -1686,7 +2070,33 @@ class CaptureModule:
         tk.Scale(width_frame, from_=1, to=10, variable=width_var, orient=tk.HORIZONTAL, 
                 length=100, showvalue=1).pack(side=tk.LEFT, padx=5)
         
-        # BOTÃO DESFAZER - NOVO
+        # 🔥 CORREÇÃO: BOTÃO MOVER TIMESTAMP (IGUAL AO GRAVADOR_EVIDENCIAS)
+        if self.modo_captura == "ocultar":
+            def toggle_move_timestamp():
+                """Ativa/desativa o modo de mover timestamp - COM TRANSPARÊNCIA"""
+                current_state = move_timestamp_var.get()
+                move_timestamp_var.set(not current_state)
+
+                if move_timestamp_var.get():
+                    # Ativa modo mover timestamp
+                    move_btn.config(relief=tk.SUNKEN, bg="#4CAF50", fg="white", 
+                                  text="📅 MODO MOVER ATIVO")
+                    self.canvas.config(cursor="hand2")
+                else:
+                    # Desativa modo mover timestamp
+                    move_btn.config(relief=tk.RAISED, bg="SystemButtonFace", fg="black",
+                                  text="📅 Mover Data/Hora")
+                    self.canvas.config(cursor="cross")
+                
+                # 🔥 CORREÇÃO: Atualizar display para aplicar/remover transparência
+                refresh_display()
+
+            move_btn = tk.Button(tools_frame, text="📅 Mover Data/Hora", 
+                               command=toggle_move_timestamp, relief=tk.RAISED,
+                               cursor="hand2", width=18)
+            move_btn.pack(side=tk.LEFT, padx=20)
+        
+        # BOTÃO DESFAZER
         def undo_action():
             if self.elements:  # Se houver elementos para desfazer
                 # Remove o último elemento e adiciona à pilha de desfazer
@@ -1697,14 +2107,78 @@ class CaptureModule:
         undo_btn = self._create_styled_button(tools_frame, text="↩️ Desfazer (Ctrl+Z)", command=undo_action)
         undo_btn.pack(side=tk.LEFT, padx=20)
         
-        # Variáveis para desenho
-        start_xy = {"x": None, "y": None}
-        
+        # 🔥 CORREÇÃO: FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO (IGUAL AO GRAVADOR_EVIDENCIAS.PY)
         def refresh_display():
-            # Redesenha todos os elementos
+            """Redesenha toda a cena: imagem base + timestamp + elementos - SEM CÍRCULO VERMELHO"""
+            # Limpa o canvas
             self.canvas.delete("all")
+            
+            # Redesenha a imagem ORIGINAL (sem timestamp)
+            self.display_img = self.editing_img.resize((disp_w, disp_h), Image.LANCZOS)
+            self.current_tk_img = ImageTk.PhotoImage(self.display_img)
             self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
             
+            # 🔥 CORREÇÃO: MOSTRAR TIMESTAMP DIRETAMENTE (igual ao gravador_evidencias.py)
+            if self.timestamp_pos and self.modo_captura == "ocultar":
+                # Obter dados do timestamp
+                evidencia_meta = self.obter_metadados_evidencia(nome_arquivo)
+                if evidencia_meta:
+                    img_width, img_height = self.original_img.size
+                    pos_x_percent = self.timestamp_pos[0]
+                    pos_y_percent = self.timestamp_pos[1]
+                    
+                    texto = evidencia_meta["timestamp_texto"]
+                    texto_cor = evidencia_meta["timestamp_cor"]
+                    fundo_cor = "#000000B2"  # Preto semi-transparente
+                    tamanho = 12  # Tamanho reduzido para visualização no canvas
+                    
+                    # Calcular posição em pixels no canvas
+                    pos_x = int(pos_x_percent * img_width * self.scale_factor)
+                    pos_y = int(pos_y_percent * img_height * self.scale_factor)
+                    
+                    # Usar tkfont para medir o texto
+                    font = tkfont.Font(family="Arial", size=tamanho, weight="bold")
+                    text_width = font.measure(texto)
+                    text_height = font.metrics("linespace")
+                    
+                    # 🔥 USAR MESMO CÁLCULO DO GRAVADOR_EVIDENCIAS.PY
+                    padding_horizontal = 10
+                    padding_vertical = 6
+                    
+                    # Calcular dimensões do fundo
+                    fundo_largura = text_width + (padding_horizontal * 2)
+                    fundo_altura = text_height + (padding_vertical * 2)
+                    
+                    # Calcular posição (centralizada)
+                    fundo_x1 = pos_x - (fundo_largura // 2)
+                    fundo_y1 = pos_y - (fundo_altura // 2)
+                    fundo_x2 = fundo_x1 + fundo_largura
+                    fundo_y2 = fundo_y1 + fundo_altura
+                    
+                    # Aplicar transparência se estiver no modo mover
+                    fill_color = "#808080" if move_timestamp_var.get() else "#000000"  # Cinza se movendo, preto se não
+                    
+                    # 🔥 DESENHAR FUNDO SEMI-TRANSPARENTE
+                    self.canvas.create_rectangle(
+                        fundo_x1, fundo_y1, fundo_x2, fundo_y2,
+                        fill=fill_color, outline="", stipple="gray50",  # Stipple para efeito de transparência
+                        tags="timestamp_bg"
+                    )
+                    
+                    # 🔥 DESENHAR TEXTO BRANCO CENTRALIZADO
+                    texto_x = fundo_x1 + padding_horizontal
+                    texto_y = fundo_y1 + padding_vertical
+                    
+                    self.canvas.create_text(
+                        texto_x, texto_y, 
+                        text=texto, 
+                        fill=texto_cor, 
+                        font=("Arial", tamanho, "bold"), 
+                        anchor="nw",
+                        tags="timestamp"
+                    )
+            
+            # Redesenha elementos de desenho (setas, círculos, etc.)
             for element in self.elements:
                 elem_type, coords, color, width, text = element
                 scaled_coords = [int(c * self.scale_factor) for c in coords]
@@ -1721,7 +2195,7 @@ class CaptureModule:
                 elif elem_type == "text":
                     x, y = scaled_coords
                     self.canvas.create_text(x, y, text=text, fill=color, font=("Arial", 12), anchor="nw")
-                # 🔥 ADICIONADO: Caso para mosaico
+                # 🔥 ADICIONADO: Caso para mosaico (BLUR)
                 elif elem_type == "blur":
                     x1, y1, x2, y2 = scaled_coords
                     # Desenhar um retângulo tracejado para representar a área de blur
@@ -1741,7 +2215,7 @@ class CaptureModule:
                 elif elem_type == "arrow":
                     x1, y1, x2, y2 = scaled_coords
                     self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
-                # 🔥 ADICIONADO: Caso temporário para mosaico
+                # 🔥 ADICIONADO: Caso temporário para mosaico (BLUR)
                 elif elem_type == "blur":
                     x1, y1, x2, y2 = scaled_coords
                     self.canvas.create_rectangle(x1, y1, x2, y2, outline="#FF00FF", width=2, dash=(5,5))
@@ -1762,16 +2236,97 @@ class CaptureModule:
             
             self.canvas.create_polygon(x2, y2, x3, y3, x4, y4, fill=color, outline=color)
         
-        def on_button_press(event):
-            start_xy["x"], start_xy["y"] = event.x, event.y
+        # 🔥 CORREÇÃO: FUNÇÕES PARA MOVER TIMESTAMP (IGUAL AO GRAVADOR_EVIDENCIAS.PY)
+        def _canvas_to_image_coords(canvas_x, canvas_y):
+            """Converte coordenadas do canvas para coordenadas da imagem original"""
+            img_x = canvas_x / self.scale_factor
+            img_y = canvas_y / self.scale_factor
+            return int(img_x), int(img_y)
+
+        def _is_click_on_timestamp(img_x, img_y):
+            """Verifica se o clique foi na área do timestamp real"""
+            if not hasattr(self, 'timestamp_pos') or not self.timestamp_pos:
+                return False
+                
+            # Obter posição atual do timestamp
+            pos_x_percent = self.timestamp_pos[0]
+            pos_y_percent = self.timestamp_pos[1]
+            
+            # Calcular posição em pixels
+            img_width, img_height = self.original_img.size
+            pos_x = int(pos_x_percent * img_width)
+            pos_y = int(pos_y_percent * img_height)
+            
+            # 🔥 CORREÇÃO: Considerar uma área maior ao redor do timestamp para facilitar o clique
+            tolerance = 80  # pixels de tolerância
+            
+            return (abs(img_x - pos_x) <= tolerance and abs(img_y - pos_y) <= tolerance)
+
+        def start_move_timestamp(event):
+            """Inicia o movimento do timestamp"""
+            if move_timestamp_var.get() and self.modo_captura == "ocultar":
+                # 🔥 CORREÇÃO: Verificar se o clique foi no timestamp real
+                img_x, img_y = _canvas_to_image_coords(event.x, event.y)
+                if _is_click_on_timestamp(img_x, img_y):
+                    self.moving_timestamp = True
+                    self.timestamp_drag_data["x"] = event.x
+                    self.timestamp_drag_data["y"] = event.y
+                    self.last_mouse_pos = (event.x, event.y)
+                    self.canvas.config(cursor="fleur")  # Cursor de movimento
+
+        def on_motion_timestamp(event):
+            """Movimenta o timestamp"""
+            if self.moving_timestamp and move_timestamp_var.get() and self.modo_captura == "ocultar":
+                current_mouse_pos = (event.x, event.y)
+                
+                if (abs(current_mouse_pos[0] - self.last_mouse_pos[0]) > 2 or 
+                    abs(current_mouse_pos[1] - self.last_mouse_pos[1]) > 2):
+                    
+                    dx = event.x - self.timestamp_drag_data["x"]
+                    dy = event.y - self.timestamp_drag_data["y"]
+                    
+                    img_width, img_height = self.original_img.size
+                    
+                    # Calcular a nova posição considerando o deslocamento
+                    new_x = self.timestamp_pos[0] + (dx / (img_width * self.scale_factor))
+                    new_y = self.timestamp_pos[1] + (dy / (img_height * self.scale_factor))
+                    
+                    # Limitar aos limites da imagem
+                    new_x = max(0.05, min(0.95, new_x))  # Deixar margem para o fundo
+                    new_y = max(0.05, min(0.95, new_y))  # Deixar margem para o fundo
+                    
+                    self.timestamp_pos = (new_x, new_y)
+                    refresh_display()
+                    
+                    self.timestamp_drag_data["x"] = event.x
+                    self.timestamp_drag_data["y"] = event.y
+                    self.last_mouse_pos = current_mouse_pos
+
+        def stop_move_timestamp(event):
+            """Finaliza o movimento do timestamp"""
+            if self.moving_timestamp:
+                self.moving_timestamp = False
+                if move_timestamp_var.get() and self.modo_captura == "ocultar":
+                    self.canvas.config(cursor="hand2")
+                else:
+                    self.canvas.config(cursor="cross")
+
+        # Variáveis para desenho
+        start_xy = {"x": None, "y": None}
         
+        def on_button_press(event):
+            if move_timestamp_var.get() and self.modo_captura == "ocultar":
+                start_move_timestamp(event)
+            else:
+                start_xy["x"], start_xy["y"] = event.x, event.y
+
         def on_motion(event):
-            if start_xy["x"] is not None:
-                # Desenho em tempo real
+            if self.moving_timestamp and move_timestamp_var.get() and self.modo_captura == "ocultar":
+                on_motion_timestamp(event)
+            elif start_xy["x"] is not None and not move_timestamp_var.get():
                 sx, sy = start_xy["x"], start_xy["y"]
                 ex, ey = event.x, event.y
                 
-                # Converte para coordenadas da imagem original
                 ix1, iy1 = int(sx / self.scale_factor), int(sy / self.scale_factor)
                 ix2, iy2 = int(ex / self.scale_factor), int(ey / self.scale_factor)
                 
@@ -1783,7 +2338,6 @@ class CaptureModule:
                     radius = int(((ix2 - ix1)**2 + (iy2 - iy1)**2)**0.5)
                     self.temp_element = ("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, "")
                 elif tool == "rectangle":
-                    # Garante que x2 >= x1 and y2 >= y1
                     x1_norm = min(ix1, ix2)
                     y1_norm = min(iy1, iy2)
                     x2_norm = max(ix1, ix2)
@@ -1791,7 +2345,7 @@ class CaptureModule:
                     self.temp_element = ("rectangle", [x1_norm, y1_norm, x2_norm, y2_norm], color, width, "")
                 elif tool == "arrow":
                     self.temp_element = ("arrow", [ix1, iy1, ix2, iy2], color, width, "")
-                # 🔥 ADICIONADO: Caso para mosaico
+                # 🔥 ADICIONADO: Caso para mosaico (BLUR)
                 elif tool == "blur":
                     # Para blur, também usamos coordenadas normalizadas
                     x1_norm = min(ix1, ix2)
@@ -1803,8 +2357,9 @@ class CaptureModule:
                 refresh_display()
         
         def on_button_release(event):
-            if start_xy["x"] is not None:
-                # Converte coordenadas da tela para coordenadas da imagem original
+            if self.moving_timestamp:
+                stop_move_timestamp(event)
+            elif start_xy["x"] is not None and not move_timestamp_var.get():
                 sx, sy = start_xy["x"], start_xy["y"]
                 ex, ey = event.x, event.y
                 
@@ -1815,7 +2370,6 @@ class CaptureModule:
                 color = color_var.get()
                 width = width_var.get()
                 
-                # Limpa a pilha de desfazer quando uma nova ação é realizada - NOVO
                 self.undo_stack.clear()
                 
                 if tool == "circle":
@@ -1823,7 +2377,6 @@ class CaptureModule:
                     self.elements.append(("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, ""))
                 
                 elif tool == "rectangle":
-                    # Garante que x2 >= x1 and y2 >= y1
                     x1_norm = min(ix1, ix2)
                     y1_norm = min(iy1, iy2)
                     x2_norm = max(ix1, ix2)
@@ -1833,7 +2386,7 @@ class CaptureModule:
                 elif tool == "arrow":
                     self.elements.append(("arrow", [ix1, iy1, ix2, iy2], color, width, ""))
                 
-                # 🔥 ADICIONADO: Caso para mosaico
+                # 🔥 ADICIONADO: Caso para mosaico (BLUR)
                 elif tool == "blur":
                     # Garante que x2 >= x1 and y2 >= y1
                     x1_norm = min(ix1, ix2)
@@ -1871,10 +2424,11 @@ class CaptureModule:
         # Atualiza a visualização inicial
         refresh_display()
         
-        # Frame para o botão Salvar (AGORA MAIS PRÓXIMO DA IMAGEM)
+        # Frame para o botão Salvar
         button_frame = self._create_styled_frame(canvas_frame)
-        button_frame.pack(pady=10)  # Reduzido o padding para ficar mais próximo
+        button_frame.pack(pady=10)
         
+        # 🔥 CORREÇÃO: FUNÇÃO SALVAR_EDICAO ATUALIZADA COM TIMESTAMP E BLUR
         def salvar_edicao():
             # Fecha a janela de seleção de cor personalizada se estiver aberta
             if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
@@ -1883,65 +2437,92 @@ class CaptureModule:
                 except:
                     pass
             
-            # Aplica todos os elementos à imagem
-            draw = ImageDraw.Draw(self.editing_img)
-            
-            for element in self.elements:
-                elem_type, coords, color, width, text = element
+            try:
+                # 🔥 CORREÇÃO CRÍTICA: Carrega a imagem ORIGINAL do arquivo para aplicar as edições
+                final_img = Image.open(caminho_print).convert("RGBA")
+                draw = ImageDraw.Draw(final_img)
                 
-                if elem_type == "circle":
-                    x1, y1, x2, y2 = coords
-                    draw.ellipse((x1, y1, x2, y2), outline=color, width=width)
-                
-                elif elem_type == "rectangle":
-                    x1, y1, x2, y2 = coords
-                    # Garante que as coordenadas estão normalizadas
-                    x1_norm = min(x1, x2)
-                    y1_norm = min(y1, y2)
-                    x2_norm = max(x1, x2)
-                    y2_norm = max(y1, y2)
-                    draw.rectangle((x1_norm, y1_norm, x2_norm, y2_norm), outline=color, width=width)
-                
-                elif elem_type == "arrow":
-                    x1, y1, x2, y2 = coords
-                    draw.line((x1, y1, x2, y2), fill=color, width=width)
+                # Aplica todos os elementos à imagem ORIGINAL
+                for element in self.elements:
+                    elem_type, coords, color, width, text = element
                     
-                    # Calcula o ângulo da seta
-                    angle = math.atan2(y2 - y1, x2 - x1)
+                    if elem_type == "circle":
+                        x1, y1, x2, y2 = coords
+                        draw.ellipse((x1, y1, x2, y2), outline=color, width=width)
                     
-                    # Desenha a ponta da seta (triângulo)
-                    arrow_size = 20
-                    x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
-                    y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
-                    x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
-                    y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
+                    elif elem_type == "rectangle":
+                        x1, y1, x2, y2 = coords
+                        # Garante que as coordenadas estão normalizadas
+                        x1_norm = min(x1, x2)
+                        y1_norm = min(y1, y2)
+                        x2_norm = max(x1, x2)
+                        y2_norm = max(y1, y2)
+                        draw.rectangle((x1_norm, y1_norm, x2_norm, y2_norm), outline=color, width=width)
                     
-                    draw.polygon([(x2, y2), (x3, y3), (x4, y4)], fill=color)
+                    elif elem_type == "arrow":
+                        x1, y1, x2, y2 = coords
+                        draw.line((x1, y1, x2, y2), fill=color, width=width)
+                        
+                        # Calcula o ângulo da seta
+                        angle = math.atan2(y2 - y1, x2 - x1)
+                        
+                        # Desenha a ponta da seta (triângulo)
+                        arrow_size = 20
+                        x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
+                        y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
+                        x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
+                        y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
+                        
+                        draw.polygon([(x2, y2), (x3, y3), (x4, y4)], fill=color)
+                    
+                    elif elem_type == "text":
+                        x, y = coords
+                        try:
+                            font = ImageFont.truetype("arial.ttf", 16)
+                        except:
+                            font = ImageFont.load_default()
+                        
+                        # Desenha texto diretamente
+                        draw.text((x, y), text, fill=color, font=font)
+                    
+                    # 🔥 ADICIONADO: Aplicar mosaico (BLUR)
+                    elif elem_type == "blur":
+                        x1, y1, x2, y2 = coords
+                        # Aplicar efeito de blur na área selecionada
+                        region = final_img.crop((x1, y1, x2, y2))
+                        # Aumentar o valor do radius para um blur mais forte
+                        blurred_region = region.filter(ImageFilter.GaussianBlur(15))
+                        final_img.paste(blurred_region, (x1, y1, x2, y2))
                 
-                elif elem_type == "text":
-                    x, y = coords
-                    try:
-                        font = ImageFont.truetype("arial.ttf", 16)
-                    except:
-                        font = ImageFont.load_default()
-                    
-                    # Desenha texto diretamente
-                    draw.text((x, y), text, fill=color, font=font)
+                # 🔥 CORREÇÃO: Salvar a imagem editada SEM aplicar timestamp
+                final_img.convert("RGB").save(caminho_print, "PNG")
                 
-                # 🔥 ADICIONADO: Aplicar mosaico
-                elif elem_type == "blur":
-                    x1, y1, x2, y2 = coords
-                    # Aplicar efeito de blur na área selecionada
-                    region = self.editing_img.crop((x1, y1, x2, y2))
-                    # Aumentar o valor do radius para um blur mais forte
-                    blurred_region = region.filter(ImageFilter.GaussianBlur(15))
-                    self.editing_img.paste(blurred_region, (x1, y1, x2, y2))
-            
-            self.editing_img.convert("RGB").save(caminho_print, "PNG")
-            messagebox.showinfo("Edição", "Evidência atualizada com sucesso!")
-            editor.destroy()
+                # 🔥 CORREÇÃO: ATUALIZAR POSIÇÃO DO TIMESTAMP NOS METADADOS (APENAS SE MODO OCULTAR)
+                if self.modo_captura == "ocultar":
+                    for evidencia in self.metadata["evidencias"]:
+                        if evidencia["arquivo"] == nome_arquivo:
+                            evidencia["timestamp_posicao"]["x"] = self.timestamp_pos[0]
+                            evidencia["timestamp_posicao"]["y"] = self.timestamp_pos[1]
+                            break
+                    
+                    self._salvar_metadata()
+                
+                # 🔥 CORREÇÃO ADICIONAL: Forçar atualização da exibição principal
+                messagebox.showinfo("Edição", "Evidência atualizada com sucesso!")
+                
+                # 🔥 CORREÇÃO: Fechar editor e garantir atualização
+                editor.destroy()
+                
+                # 🔥 CORREÇÃO CRÍTICA: Forçar recarregamento da imagem na janela principal
+                # Isso garante que a imagem atualizada seja exibida
+                if hasattr(self, 'current_index') and hasattr(self, 'prints'):
+                    # Recarrega a imagem do arquivo atualizado
+                    self.atualizar_exibicao()
+                    
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao salvar edição: {str(e)}")
 
-        # Função para fechar o editor e garantir que la janela de cor seja fechada
+        # Função para fechar o editor e garantir que a janela de cor seja fechada
         def fechar_editor():
             # Fecha a janela de seleção de cor personalizada se estiver aberta
             if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
@@ -1954,11 +2535,12 @@ class CaptureModule:
         # Configurar o protocolo de fechamento da janela
         editor.protocol("WM_DELETE_WINDOW", fechar_editor)
         
-        # Botão Salvar e Fechar (MESMO PADRÃO DOS OUTROS BOTÕES)
+        # Botão Salvar e Fechar
         self._create_styled_button(button_frame, text="💾 Salvar e Fechar", command=salvar_edicao, 
                                  style_type="accent").pack()
 
         editor.transient(parent)
+        return editor
 
     def set_color(self, color_var, color, preview_widget):
         color_var.set(color)
@@ -2021,6 +2603,18 @@ class CaptureModule:
                 data_hora.add_run(f"Data e hora da geração: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}").italic = True
                 data_hora.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             
+            # 🔥 CORREÇÃO CRÍTICA: APLICAR TIMESTAMP APENAS NA GERAÇÃO DO DOCX (igual ao gravador_evidencias.py)
+            if self.modo_captura == "ocultar":
+                print("🕒 Aplicando timestamp nas evidências para o documento...")
+                for caminho_print in self.prints:
+                    nome_arquivo = os.path.basename(caminho_print)
+                    # Encontrar os metadados da evidência
+                    for evidencia in self.metadata["evidencias"]:
+                        if evidencia["arquivo"] == nome_arquivo and evidencia["timestamp_texto"]:
+                            # Aplicar timestamp apenas na cópia temporária para o DOCX
+                            self.aplicar_timestamp_moderno(caminho_print, evidencia)
+                            break
+            
             # Adicionar evidências
             for i, print_path in enumerate(self.prints, 1):
                 print(f"📷 Adicionando evidência {i}: {print_path}")
@@ -2054,7 +2648,7 @@ class CaptureModule:
                     self.doc.add_paragraph(f"[Erro ao carregar imagem: {print_path}]")
                 
                 # Adicionar separador
-                self.doc.add_paragraph("―" * 50).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                self.doc.add_paragraph("―" * 36).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             
             # 🔥 CORREÇÃO: USAR NOME DO TEMPLATE PARA O DOCUMENTO
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
