@@ -7,13 +7,15 @@ from docx.shared import Inches
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import pyautogui
 from pynput import mouse, keyboard
-from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageFilter  # 🔥 ADICIONADO ImageFilter
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageFilter
 from datetime import datetime
 import math
 import re
 import glob
 import json
 import uuid
+import shutil
+import subprocess
 
 # Importar sistema de estilos
 try:
@@ -50,6 +52,22 @@ class EvidenceGeneratorModule:
         self.popup = None
         self.processamento_cancelado = False
         self.saved_file_path = None
+        
+        # Atributos para o editor
+        self.elements = []
+        self.undo_stack = []
+        self.temp_element = None
+        self.original_img = None
+        self.editing_img = None
+        self.display_img = None
+        self.current_tk_img = None
+        self.canvas = None
+        self.canvas_img = None
+        self.scale_factor = 1.0
+        self.comment_entry = None
+        self.current_img_label = None
+        self.pos_label = None
+        self.color_chooser_window = None
         
         self.using_liquid_glass = STYLES_AVAILABLE and self.settings.get('theme', 'liquid_glass') == 'liquid_glass'
         self.style_manager = LiquidGlassStyle if STYLES_AVAILABLE and self.using_liquid_glass else None
@@ -225,7 +243,7 @@ class EvidenceGeneratorModule:
         """Cria a interface do módulo"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Gerador de Documentos de Evidências")
-        self.root.geometry("800x800")
+        self.root.geometry("350x350")
         self.root.resizable(True, False)
         
         self._apply_styles(self.root)
@@ -316,9 +334,9 @@ class EvidenceGeneratorModule:
         """Janela de configuração - SIMPLIFICADA SEM LISTA"""
         config_window = tk.Toplevel(self.root)
         config_window.title("Configuração de Arquivo")
-        config_window.geometry("1200x900")
+        config_window.geometry("650x515")
         config_window.resizable(True, True)
-        config_window.minsize(800,800)
+        config_window.minsize(650,515)
         
         self._apply_styles(config_window)
         
@@ -465,7 +483,7 @@ class EvidenceGeneratorModule:
         return self.template_path is not None and self.output_dir is not None and self.prints
 
     def iniciar_processamento(self):
-        """Inicia o processamento das evidências"""
+        """Inicia o processamento das evidências - AGORA USA NAVEGAÇÃO"""
         os.makedirs(self.output_dir, exist_ok=True)
 
         try:
@@ -480,266 +498,360 @@ class EvidenceGeneratorModule:
             self.doc = Document()
             self.using_template = False
         
-        self.gerar_docx()
+        self.mostrar_janela_navegacao()
 
-    def gerar_docx(self):
-        """Gera o documento DOCX"""
-        documento_salvo = False
+    def mostrar_janela_navegacao(self):
+        """Janela principal de navegação pelas evidências"""
+        if self.popup and self.popup.winfo_exists():
+            self.popup.destroy()
+
+        self.popup = tk.Toplevel(self.root)
+        self.popup.title("Navegação de Evidências")
+        self.popup.geometry("1200x800")
+        self.popup.resizable(True, True)
         
-        while self.current_index < len(self.prints):
-            caminho_print = self.prints[self.current_index]
-            
-            if not os.path.exists(caminho_print):
-                if not self.recarregar_evidencias():
-                    break
-                if self.current_index >= len(self.prints):
-                    break
-                caminho_print = self.prints[self.current_index]
-            
-            resultado = self.mostrar_imagem(caminho_print)
-            
-            if resultado is False:
-                break
-            elif resultado is None:
-                self.recarregar_evidencias()
-                continue
-            elif resultado == "ja_salvou":
-                documento_salvo = True
-                break
-            else:
-                self.current_index += 1
+        self._apply_styles(self.popup)
         
-        if not documento_salvo:
-            self.salvar_docx()
-
-    def mostrar_imagem(self, caminho_print):
-        """Mostra popup para adicionar comentário à evidência"""
-        popup = tk.Toplevel(self.root)
-        popup.title("Adicionar Comentário à Evidência")
-        popup.geometry("950x750")
-        popup.resizable(False, False)
-
-        self._apply_styles(popup)
-
-        self.processamento_cancelado = False
-        resultado = None
-
-        if not os.path.exists(caminho_print):
-            messagebox.showerror("Erro", f"Arquivo não encontrado: {os.path.basename(caminho_print)}")
-            popup.destroy()
-            return None
-
-        img = Image.open(caminho_print)
-        img.thumbnail((850, 550))
-        img_tk = ImageTk.PhotoImage(img)
+        self.popup.transient(self.root)
         
-        img_frame = self._create_styled_frame(popup)
-        img_frame.pack(pady=10)
+        self.popup.grid_columnconfigure(0, weight=1)
+        self.popup.grid_rowconfigure(0, weight=1)
         
-        label_img = tk.Label(img_frame, image=img_tk, bg='white')
-        label_img.image = img_tk
-        label_img.pack()
-
-        comment_frame = self._create_styled_frame(popup)
-        comment_frame.pack(pady=5)
+        img_frame = self._create_styled_frame(self.popup)
+        img_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        img_frame.grid_rowconfigure(0, weight=1)
+        img_frame.grid_columnconfigure(0, weight=1)
         
-        comment_label = self._create_styled_label(comment_frame, text="Comentário (opcional):")
-        comment_label.pack()
+        self.current_img_label = tk.Label(img_frame, bg="white")
+        self.current_img_label.grid(row=0, column=0, sticky="nsew")
         
-        entry = self._create_styled_entry(comment_frame, width=80)
-        entry.pack(pady=5)
-
-        info_frame = self._create_styled_frame(popup)
-        info_frame.pack(pady=5)
-        
-        file_info = f"Arquivo: {os.path.basename(caminho_print)}"
-        timestamp = datetime.fromtimestamp(os.path.getmtime(caminho_print))
-        file_info += f" - {timestamp.strftime('%H:%M:%S')}"
-        
-        info_label = self._create_styled_label(info_frame, text=file_info)
-        info_label.pack()
-
-        def editar_print():
-            self.abrir_editor(caminho_print, popup)
-
-        def adicionar():
-            nonlocal resultado
-            comentario = entry.get()
-            
-            nome_arquivo = os.path.basename(caminho_print)
-            for evidencia in self.metadata["evidencias"]:
-                if evidencia["arquivo"] == nome_arquivo:
-                    evidencia["comentario"] = comentario
-                    break
-            self._salvar_metadata()
-            
-            self.doc.add_picture(caminho_print, width=Inches(5))
-            if comentario.strip():
-                self.doc.add_paragraph(comentario)
-            resultado = True
-            popup.destroy()
-
-        def cancelar_processamento():
-            if messagebox.askyesno("Confirmar Cancelamento", 
-                                  "Tem certeza que deseja cancelar o processamento?"):
-                self.processamento_cancelado = True
-                popup.destroy()
-
-        def incluir_todos():
-            if messagebox.askyesno("Confirmar Inclusão", 
-                                  "Deseja incluir todas as evidências restantes sem editar?\nAs evidências serão adicionadas sem comentários."):
-                comentario = entry.get()
+        comment_frame = self._create_styled_frame(self.popup)
+        comment_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
                 
-                nome_arquivo = os.path.basename(caminho_print)
-                for evidencia in self.metadata["evidencias"]:
-                    if evidencia["arquivo"] == nome_arquivo:
-                        evidencia["comentario"] = comentario
-                        break
-                self._salvar_metadata()
-                
-                self.doc.add_picture(caminho_print, width=Inches(5))
-                if comentario.strip():
-                    self.doc.add_paragraph(comentario)
-                
-                for i in range(self.current_index + 1, len(self.prints)):
-                    print_path = self.prints[i]
-                    if os.path.exists(print_path):
-                        nome_arquivo_restante = os.path.basename(print_path)
-                        comentario_restante = self.obter_comentario(nome_arquivo_restante)
-                        
-                        self.doc.add_picture(print_path, width=Inches(5))
-                        if comentario_restante.strip():
-                            self.doc.add_paragraph(comentario_restante)
-                        else:
-                            self.doc.add_paragraph("")
-                
-                self.current_index = len(self.prints)
-                self.salvar_docx()
-                popup.destroy()
-                resultado = "ja_salvou"
-            else:
-                resultado = False
-
-        def excluir_print():
-            nonlocal resultado
-            if messagebox.askyesno("Confirmar Exclusão", "Tem certeza que deseja excluir esta evidência?"):
-                try:
-                    nome_arquivo = os.path.basename(caminho_print)
-                    
-                    for evidencia in self.metadata["evidencias"]:
-                        if evidencia["arquivo"] == nome_arquivo:
-                            evidencia["excluida"] = True
-                            break
-                    
-                    self._salvar_metadata()
-                    os.remove(caminho_print)
-                    print(f"Arquivo excluído: {caminho_print}")
-                    
-                    resultado = None
-                    popup.destroy()
-                    
-                except Exception as e:
-                    print(f"Erro ao excluir arquivo: {e}")
-                    messagebox.showerror("Erro", f"Não foi possível excluir o arquivo: {e}")
-                    resultado = False
-                    popup.destroy()
-                    return
-            else:
-                resultado = False
-
-        acoes_frame = self._create_styled_frame(popup)
-        acoes_frame.pack(pady=10)
-
-        self._create_styled_button(acoes_frame, text="✏ Editar Print", 
-                                  command=editar_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(acoes_frame, text="Adicionar e Próximo", 
-                                  command=adicionar, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(acoes_frame, text="🗑️ Excluir Print", 
-                                  command=excluir_print, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
-
-        controle_frame = self._create_styled_frame(popup)
-        controle_frame.pack(pady=10)
-
-        self._create_styled_button(controle_frame, text="❌ Cancelar", 
-                                  command=cancelar_processamento, style_type="glass", width=15).pack(side=tk.LEFT, padx=5)
-        self._create_styled_button(controle_frame, text="✅ Incluir Todos", 
-                                  command=incluir_todos, style_type="accent", width=15).pack(side=tk.LEFT, padx=5)
-
-        def on_closing():
-            cancelar_processamento()
-
-        popup.protocol("WM_DELETE_WINDOW", on_closing)
-        popup.grab_set()
-        self.root.wait_window(popup)
+        self._create_styled_label(comment_frame, text="Comentário:").pack(anchor="w")
         
-        if self.processamento_cancelado:
-            return False
+        comment_entry_frame = self._create_styled_frame(comment_frame)
+        comment_entry_frame.pack(fill=tk.X, pady=2)
         
-        return resultado
+        self.comment_entry = tk.Entry(comment_entry_frame, font=("Arial", 10))
+        self.comment_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.comment_entry.bind("<FocusOut>", lambda e: self.salvar_comentario())
+        
+        buttons_main_frame = self._create_styled_frame(self.popup)
+        buttons_main_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        
+        nav_frame = self._create_styled_frame(buttons_main_frame)
+        nav_frame.pack(expand=True, pady=2)
+        
+        self._create_styled_button(nav_frame, text="⏮️ Primeira", command=self.primeira_evidencia, 
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        self._create_styled_button(nav_frame, text="◀️ Anterior", command=self.anterior_evidencia,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        self.pos_label = tk.Label(nav_frame, text="", font=("Arial", 12, "bold"))
+        self.pos_label.pack(side=tk.LEFT, padx=15)
+        
+        self._create_styled_button(nav_frame, text="▶️ Próxima", command=self.proxima_evidencia,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        self._create_styled_button(nav_frame, text="⏭️ Última", command=self.ultima_evidencia,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        self._create_styled_button(nav_frame, text="🔢 Ir para...", command=self.ir_para_especifica,
+                                 style_type="glass").pack(side=tk.LEFT, padx=2)
+        
+        action_frame = self._create_styled_frame(buttons_main_frame)
+        action_frame.pack(expand=True, pady=2)
+        
+        self._create_styled_button(action_frame, text="✏️ Editar Print", command=self.editar_evidencia_atual,
+                                 style_type="glass").pack(side=tk.LEFT, padx=5)
+        self._create_styled_button(action_frame, text="🗑️ Excluir Print", command=self.excluir_evidencia_atual,
+                                 style_type="glass").pack(side=tk.LEFT, padx=5)
+        
+        control_frame = self._create_styled_frame(self.popup)
+        control_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
+        
+        control_buttons_frame = self._create_styled_frame(control_frame)
+        control_buttons_frame.pack(expand=True)
+        
+        self._create_styled_button(control_buttons_frame, text="❌ Cancelar", command=self.cancelar_processamento,
+                                 style_type="glass").pack(side=tk.LEFT, padx=5)
+        
+        self._create_styled_button(control_buttons_frame, text="✅ Gerar Evidência", command=self.finalizar_processamento,
+                                 style_type="accent").pack(side=tk.LEFT, padx=5)
+        
+        self.current_index = 0
+        self.atualizar_exibicao()
+        
+        self.popup.protocol("WM_DELETE_WINDOW", self.cancelar_processamento)
 
-    def salvar_docx(self):
-        """Salva o documento DOCX gerado"""
-        if self.template_path:
-            nome_base = os.path.basename(self.template_path)
-            if nome_base.lower().endswith('.docx'):
-                nome_base = nome_base[:-5]
-            nome_arquivo = f"{nome_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        else:
-            nome_arquivo = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        
-        diretorio_inicial = self.output_dir if self.output_dir else os.path.expanduser("~")
-        caminho_sugerido = os.path.join(diretorio_inicial, nome_arquivo)
-        
-        caminho_save = filedialog.asksaveasfilename(
-            title="Salvar Documento de Evidências",
-            initialdir=diretorio_inicial,
-            initialfile=nome_arquivo,
-            defaultextension=".docx",
-            filetypes=[("Documentos Word", "*.docx"), ("Todos os arquivos", "*.*")]
-        )
-        
-        if not caminho_save:
-            messagebox.showwarning("Cancelado", "Salvamento cancelado pelo usuário.")
+    def atualizar_exibicao(self):
+        """Atualiza a exibição da evidência atual"""
+        if not self.prints or self.current_index >= len(self.prints):
             return
+            
+        caminho_print = self.prints[self.current_index]
         
         try:
-            diretorio_destino = os.path.dirname(caminho_save)
-            if not os.path.exists(diretorio_destino):
-                os.makedirs(diretorio_destino, exist_ok=True)
+            img = Image.open(caminho_print)
             
-            self.doc.save(caminho_save)
-            self.saved_file_path = caminho_save
+            self.popup.update()
+            available_width = self.popup.winfo_width() - 40
+            available_height = self.popup.winfo_height() - 250
             
-            def abrir_pasta_apos_mensagem():
-                pasta_destino = os.path.dirname(caminho_save)
-                try:
-                    if os.name == 'nt':
-                        os.startfile(pasta_destino)
-                    elif os.name == 'posix':
-                        import subprocess
-                        if sys.platform == 'darwin':
-                            subprocess.Popen(['open', pasta_destino])
-                        else:
-                            subprocess.Popen(['xdg-open', pasta_destino])
-                except Exception as e:
-                    print(f"Não foi possível abrir a pasta: {e}")
+            img.thumbnail((available_width, available_height))
+            self.current_img_tk = ImageTk.PhotoImage(img)
+            self.current_img_label.config(image=self.current_img_tk)
             
-            messagebox.showinfo("Concluído", 
-                              f"Documento gerado com sucesso!\n\nSalvo em:\n{caminho_save}\n\nA pasta será aberta automaticamente.")
+            self.pos_label.config(text=f"Evidência {self.current_index + 1} de {len(self.prints)}")
             
-            self.root.after(100, abrir_pasta_apos_mensagem)
-                
-        except PermissionError:
-            messagebox.showerror("Erro de Permissão", 
-                               f"Não foi possível salvar o arquivo.\n\n"
-                               f"O sistema negou permissão para escrever em:\n{caminho_save}\n\n"
-                               f"Tente salvar em outro local (como Documentos ou Área de Trabalho).")
+            nome_arquivo = os.path.basename(caminho_print)
+            comentario = self.obter_comentario(nome_arquivo)
+            self.comment_entry.delete(0, tk.END)
+            self.comment_entry.insert(0, comentario)
+            
         except Exception as e:
-            messagebox.showerror("Erro", 
-                               f"Erro ao salvar documento:\n\n{str(e)}\n\n"
-                               f"Tente salvar em outro local.")
+            print(f"Erro ao carregar imagem: {e}")
 
-    # 🔥 ADICIONADO: MÉTODOS DE EDIÇÃO COM FERRAMENTA DE MOSAICO (CENSURA)
+    def salvar_comentario(self):
+        """Salva o comentário da evidência atual"""
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        nome_arquivo = os.path.basename(caminho_print)
+        comentario = self.comment_entry.get()
+        
+        for evidencia in self.metadata["evidencias"]:
+            if evidencia["arquivo"] == nome_arquivo:
+                evidencia["comentario"] = comentario
+                break
+                
+        self._salvar_metadata()
+
+    def primeira_evidencia(self):
+        self.salvar_comentario()
+        self.current_index = 0
+        self.atualizar_exibicao()
+
+    def anterior_evidencia(self):
+        self.salvar_comentario()
+        if self.current_index > 0:
+            self.current_index -= 1
+            self.atualizar_exibicao()
+
+    def proxima_evidencia(self):
+        self.salvar_comentario()
+        if self.current_index < len(self.prints) - 1:
+            self.current_index += 1
+            self.atualizar_exibicao()
+
+    def ultima_evidencia(self):
+        self.salvar_comentario()
+        self.current_index = len(self.prints) - 1
+        self.atualizar_exibicao()
+
+    def ir_para_especifica(self):
+        self.salvar_comentario()
+        if not self.prints:
+            return
+            
+        numero = simpledialog.askinteger("Navegar", 
+                                       f"Digite o número da evidência (1-{len(self.prints)}):",
+                                       minvalue=1, maxvalue=len(self.prints))
+        if numero:
+            self.current_index = numero - 1
+            self.atualizar_exibicao()
+
+    def editar_evidencia_atual(self):
+        self.salvar_comentario()
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        self.abrir_editor(caminho_print, self.popup)
+        self.atualizar_exibicao()
+
+    def excluir_evidencia_atual(self):
+        self.salvar_comentario()
+        if not self.prints or self.current_index >= len(self.prints):
+            return
+            
+        caminho_print = self.prints[self.current_index]
+        nome_arquivo = os.path.basename(caminho_print)
+        
+        if messagebox.askyesno("Confirmar Exclusão", 
+                             "Tem certeza que deseja excluir este print?"):
+            try:
+                os.remove(caminho_print)
+                
+                for evidencia in self.metadata["evidencias"]:
+                    if evidencia["arquivo"] == nome_arquivo:
+                        evidencia["excluida"] = True
+                        break
+                
+                self._salvar_metadata()
+                
+                self.recarregar_evidencias()
+                
+                if not self.prints:
+                    messagebox.showinfo("Info", "Todas as evidências foram processadas.")
+                    self.finalizar_processamento()
+                    return
+                
+                if self.current_index >= len(self.prints):
+                    self.current_index = len(self.prints) - 1
+                
+                self.atualizar_exibicao()
+                messagebox.showinfo("Sucesso", "Evidência excluída!")
+                
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao excluir: {str(e)}")
+
+    def finalizar_processamento(self):
+        """Processa todas as evidências e gera o DOCX"""
+        self.salvar_comentario()
+        
+        try:
+            doc_path = self.gerar_documento()
+            
+            pasta_para_abrir = os.path.dirname(doc_path)
+            
+            resposta = messagebox.askyesno(
+                "Sucesso", 
+                f"Documento gerado com sucesso em:\n{doc_path}\n\nDeseja abrir a pasta onde o documento foi salvo?",
+                parent=self.popup
+            )
+            
+            if resposta:
+                if not self._abrir_pasta(pasta_para_abrir):
+                    messagebox.showinfo(
+                        "Abrir Pasta", 
+                        f"Pasta do documento:\n{pasta_para_abrir}",
+                        parent=self.popup
+                    )
+                    
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao gerar documento: {e}", parent=self.popup)
+        
+        if self.popup and self.popup.winfo_exists():
+            self.popup.destroy()
+            self.popup = None
+
+    def _abrir_pasta(self, caminho_pasta):
+        """Abre a pasta no explorador de arquivos do sistema"""
+        try:
+            if os.name == 'nt':
+                os.startfile(caminho_pasta)
+            elif os.name == 'posix':
+                if sys.platform == 'darwin':
+                    subprocess.run(['open', caminho_pasta])
+                else:
+                    subprocess.run(['xdg-open', caminho_pasta])
+            return True
+        except Exception as e:
+            print(f"Erro ao abrir pasta: {e}")
+            return False
+
+    def cancelar_processamento(self):
+        self.salvar_comentario()
+        if messagebox.askyesno("Confirmar", "Deseja cancelar o processamento?"):
+            if self.popup:
+                self.popup.destroy()
+                self.popup = None
+
+    def gerar_documento(self):
+        """Gera o documento DOCX com as evidências e retorna o caminho do documento"""
+        doc_path = None
+        try:
+            print("📄 Iniciando geração do documento DOCX...")
+            
+            if self.template_path and os.path.exists(self.template_path):
+                self.doc = Document(self.template_path)
+                self.using_template = True
+                print(f"✅ Template carregado: {self.template_path}")
+            else:
+                self.doc = Document()
+                self.using_template = False
+                print("ℹ️ Criando documento vazio (sem template)")
+            
+            if not self.using_template:
+                titulo = self.doc.add_heading('Evidências Capturadas', 0)
+                titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            
+            if not self.using_template:
+                data_hora = self.doc.add_paragraph()
+                data_hora.add_run(f"Data e hora da geração: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}").italic = True
+                data_hora.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            
+            for i, print_path in enumerate(self.prints, 1):
+                print(f"📷 Adicionando evidência {i}: {print_path}")
+                
+                self.doc.add_paragraph().add_run(f"Evidência {i}").bold = True
+                
+                nome_arquivo = os.path.basename(print_path)
+                comentario = self.obter_comentario(nome_arquivo)
+                if comentario:
+                    comentario_para = self.doc.add_paragraph()
+                    comentario_para.add_run(f"Comentário: {comentario}").italic = True
+                
+                try:
+                    paragraph = self.doc.add_paragraph()
+                    paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                    run = paragraph.add_run()
+                    
+                    if os.path.exists(print_path):
+                        run.add_picture(print_path, width=Inches(6.0))
+                        print(f"✅ Imagem {i} adicionada com sucesso")
+                    else:
+                        print(f"⚠️ Arquivo não encontrado: {print_path}")
+                        self.doc.add_paragraph(f"[Arquivo de imagem não encontrado: {print_path}]")
+                        
+                except Exception as e:
+                    print(f"❌ Erro ao adicionar imagem {print_path}: {e}")
+                    self.doc.add_paragraph(f"[Erro ao carregar imagem: {print_path}]")
+                
+                self.doc.add_paragraph("―" * 50).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            template_filename = os.path.basename(self.template_path)
+            template_name = os.path.splitext(template_filename)[0]
+            
+            template_name = self._limpar_nome_arquivo(template_name)
+            
+            doc_filename = f"{template_name}_{timestamp}.docx"
+            doc_path = os.path.join(self.output_dir, doc_filename)
+            
+            os.makedirs(os.path.dirname(doc_path), exist_ok=True)
+            
+            if len(doc_path) > 255:
+                short_name = f"Evidencias_{timestamp}.docx"
+                doc_path = os.path.join(self.output_dir, short_name)
+                print(f"⚠️ Caminho muito longo, usando nome reduzido: {short_name}")
+            
+            self.doc.save(doc_path)
+            print(f"✅ Documento salvo em: {doc_path}")
+            
+            return doc_path
+            
+        except Exception as e:
+            print(f"❌ Erro ao gerar documento: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def _limpar_nome_arquivo(self, nome):
+        """Remove caracteres inválidos para nomes de arquivo no Windows, mantendo caracteres PT-BR"""
+        caracteres_invalidos = r'[\\/*?:"<>|]'
+        nome_limpo = re.sub(caracteres_invalidos, '_', nome)
+        
+        nome_limpo = re.sub(r'[^\w\s\-\.\(\)áàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]', '', nome_limpo)
+        
+        if len(nome_limpo) > 100:
+            nome_limpo = nome_limpo[:100]
+            
+        return nome_limpo.strip()
+
     def abrir_editor(self, caminho_print, parent):
         """Abre editor de imagens para a evidência"""
         editor = tk.Toplevel(parent)
@@ -773,8 +885,7 @@ class EvidenceGeneratorModule:
         self.undo_stack = []
         self.temp_element = None
         
-        canvas_bg = 'gray'
-        self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg=canvas_bg)
+        self.canvas = tk.Canvas(canvas_frame, width=disp_w, height=disp_h, cursor="cross", bg="gray")
         self.canvas.pack(padx=5, pady=5)
         self.canvas_img = self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
         
@@ -782,274 +893,343 @@ class EvidenceGeneratorModule:
         color_var = tk.StringVar(value="#FF0000")
         width_var = tk.IntVar(value=3)
         
-        tools_label = self._create_styled_label(tools_frame, text="Ferramenta:")
-        tools_label.pack(side=tk.LEFT, padx=5)
+        self._create_styled_label(tools_frame, text="Ferramenta:").pack(side=tk.LEFT, padx=5)
         
-        tools_buttons_frame = self._create_styled_frame(tools_frame)
-        tools_buttons_frame.pack(side=tk.LEFT, padx=5)
+        icon_frame = self._create_styled_frame(tools_frame)
+        icon_frame.pack(side=tk.LEFT, padx=5)
         
-        # 🔥 ADICIONADO: Ferramenta de mosaico
-        tools = [
-            ("rectangle", "⬜", "Retângulo"),
-            ("circle", "🔴", "Círculo"),
-            ("arrow", "👉", "Seta"),
-            ("text", "🆎", "Texto"),
-            ("blur", "🌀", "Mosaico")  # NOVA FERRAMENTA
-        ]
-        
-        for tool_value, icon, tooltip in tools:
-            if self.using_liquid_glass and self.style_manager:
-                btn = ttk.Radiobutton(tools_buttons_frame, text=icon, variable=tool_var, 
-                                    value=tool_value, style="Glass.TRadiobutton")
-            else:
-                btn = tk.Radiobutton(tools_buttons_frame, text=icon, variable=tool_var,
-                                   value=tool_value, bg='white', indicatoron=0,
-                                   width=3, height=2, relief=tk.RAISED)
-            btn.pack(side=tk.LEFT, padx=2)
-        
-        colors_label = self._create_styled_label(tools_frame, text="Cor:")
-        colors_label.pack(side=tk.LEFT, padx=20)
-        
-        colors_frame = self._create_styled_frame(tools_frame)
-        colors_frame.pack(side=tk.LEFT, padx=5)
-        
-        colors = [("#FF0000", "Vermelho"), ("#0000FF", "Azul"), ("#00FF00", "Verde"), 
-                 ("#FFFF00", "Amarelo"), ("#000000", "Preto"), ("#FFFFFF", "Branco")]
-        
-        for color_value, color_name in colors:
-            if self.using_liquid_glass and self.style_manager:
-                btn = ttk.Radiobutton(colors_frame, text="⬤", variable=color_var, 
-                                    value=color_value, style="Glass.TRadiobutton")
-            else:
-                btn = tk.Radiobutton(colors_frame, text="⬤", variable=color_var,
-                                   value=color_value, bg='white', indicatoron=0,
-                                   width=2, height=2, relief=tk.RAISED,
-                                   fg=color_value)
-            btn.pack(side=tk.LEFT, padx=2)
-        
-        width_label = self._create_styled_label(tools_frame, text="Espessura:")
-        width_label.pack(side=tk.LEFT, padx=20)
-        
-        width_scale = tk.Scale(tools_frame, from_=1, to=10, variable=width_var, 
-                              orient=tk.HORIZONTAL, length=100, showvalue=True)
-        width_scale.pack(side=tk.LEFT, padx=5)
-        
-        action_frame = self._create_styled_frame(tools_frame)
-        action_frame.pack(side=tk.RIGHT, padx=10)
-        
-        self._create_styled_button(action_frame, text="↶ Desfazer", 
-                                  command=self.desfazer_acao, style_type="glass").pack(side=tk.LEFT, padx=2)
-        self._create_styled_button(action_frame, text="Salvar", 
-                                  command=lambda: self.salvar_edicao(caminho_print, editor), 
-                                  style_type="accent").pack(side=tk.LEFT, padx=2)
-        self._create_styled_button(action_frame, text="Cancelar", 
-                                  command=editor.destroy, style_type="glass").pack(side=tk.LEFT, padx=2)
-        
-        self.start_x = None
-        self.start_y = None
-        self.current_element = None
-        
-        self.canvas.bind("<Button-1>", lambda e: self.iniciar_desenho(e, tool_var.get()))
-        self.canvas.bind("<B1-Motion>", lambda e: self.desenhar(e, tool_var.get()))
-        self.canvas.bind("<ButtonRelease-1>", lambda e: self.finalizar_desenho(e, tool_var.get(), color_var.get(), width_var.get()))
-        
-        editor.transient(parent)
-        editor.grab_set()
+        tool_icons = {
+            "rectangle": "⬜",
+            "circle": "🔴",
+            "arrow": "👉",
+            "text": "🆎",
+            "blur": "🌀"
+        }
 
-    def iniciar_desenho(self, event, tool):
-        """Inicia o desenho no canvas"""
-        self.start_x = event.x
-        self.start_y = event.y
+        def criar_botao_ferramenta(parent, texto, valor, variavel):
+            btn = tk.Radiobutton(parent, text=texto, font=("Arial", 12), 
+                               variable=variavel, value=valor, indicatoron=0, 
+                               width=3, height=2, relief=tk.RAISED,
+                               cursor="hand2")
+            return btn
+
+        for tool_value, icon in tool_icons.items():
+            btn = criar_botao_ferramenta(icon_frame, icon, tool_value, tool_var)
+            btn.pack(side=tk.LEFT, padx=2)
+
+        for widget in icon_frame.winfo_children():
+            if isinstance(widget, tk.Radiobutton) and widget.cget("value") == "rectangle":
+                widget.config(relief=tk.SUNKEN, bg="#e3f2fd")
+                break
+
+        def update_button_appearance(*args):
+            selected_tool = tool_var.get()
+            for widget in icon_frame.winfo_children():
+                if isinstance(widget, tk.Radiobutton):
+                    if widget.cget("value") == selected_tool:
+                        widget.config(relief=tk.SUNKEN, bg="#e3f2fd")
+                    else:
+                        widget.config(relief=tk.RAISED, bg="SystemButtonFace")
+
+        tool_var.trace("w", update_button_appearance)
         
-        if tool == "text":
-            texto = simpledialog.askstring("Texto", "Digite o texto:", parent=self.root)
-            if texto:
-                orig_x = int(event.x / self.scale_factor)
-                orig_y = int(event.y / self.scale_factor)
+        color_frame = self._create_styled_frame(tools_frame)
+        color_frame.pack(side=tk.LEFT, padx=20)
+        
+        self._create_styled_label(color_frame, text="Cor:").pack(side=tk.LEFT)
+        
+        colors = ["#FF0000", "#00FF00", "#FFFF00", "#000000", "#FFFFFF"]
+        color_buttons_frame = self._create_styled_frame(color_frame)
+        color_buttons_frame.pack(side=tk.LEFT, padx=5)
+        
+        for color in colors:
+            btn = tk.Button(color_buttons_frame, bg=color, width=2, height=1, 
+                           command=lambda c=color: self.set_color(color_var, c, color_preview))
+            btn.pack(side=tk.LEFT, padx=1)
+        
+        custom_btn = self._create_styled_button(color_frame, text="Personalizada", 
+                              command=lambda: self.choose_custom_color(editor, color_var, color_preview))
+        custom_btn.pack(side=tk.LEFT, padx=5)
+        
+        color_preview = tk.Frame(color_frame, width=30, height=20, bg=color_var.get())
+        color_preview.pack(side=tk.LEFT, padx=5)
+        
+        width_frame = self._create_styled_frame(tools_frame)
+        width_frame.pack(side=tk.LEFT, padx=20)
+        
+        self._create_styled_label(width_frame, text="Espessura:").pack(side=tk.LEFT)
+        tk.Scale(width_frame, from_=1, to=10, variable=width_var, orient=tk.HORIZONTAL, 
+                length=100, showvalue=1).pack(side=tk.LEFT, padx=5)
+        
+        def undo_action():
+            if self.elements:
+                removed_element = self.elements.pop()
+                self.undo_stack.append(removed_element)
+                refresh_display()
+        
+        undo_btn = self._create_styled_button(tools_frame, text="↩️ Desfazer (Ctrl+Z)", command=undo_action)
+        undo_btn.pack(side=tk.LEFT, padx=20)
+        
+        start_xy = {"x": None, "y": None}
+        
+        def refresh_display():
+            self.canvas.delete("all")
+            self.canvas.create_image(0, 0, anchor="nw", image=self.current_tk_img)
+            
+            for element in self.elements:
+                elem_type, coords, color, width, text = element
+                scaled_coords = [int(c * self.scale_factor) for c in coords]
                 
-                element_data = {
-                    "type": "text",
-                    "text": texto,
-                    "x": orig_x,
-                    "y": orig_y,
-                    "color": "#FF0000",
-                    "size": 20
-                }
-                self.elements.append(element_data)
-                self.aplicar_elemento_na_imagem(element_data)
-                self.atualizar_canvas()
-        else:
-            if tool == "rectangle":
-                self.current_element = self.canvas.create_rectangle(
-                    self.start_x, self.start_y, self.start_x, self.start_y,
-                    outline="#FF0000", width=3
-                )
-            elif tool == "circle":
-                self.current_element = self.canvas.create_oval(
-                    self.start_x, self.start_y, self.start_x, self.start_y,
-                    outline="#FF0000", width=3
-                )
-            elif tool == "arrow":
-                self.current_element = self.canvas.create_line(
-                    self.start_x, self.start_y, self.start_x, self.start_y,
-                    arrow=tk.LAST, fill="#FF0000", width=3
-                )
-            # 🔥 ADICIONADO: Caso para mosaico
-            elif tool == "blur":
-                self.current_element = self.canvas.create_rectangle(
-                    self.start_x, self.start_y, self.start_x, self.start_y,
-                    outline="#FF00FF", width=2, dash=(5,5)
-                )
-
-    def desenhar(self, event, tool):
-        """Atualiza o desenho enquanto arrasta"""
-        if self.current_element and tool != "text":
-            if tool in ["rectangle", "circle", "blur"]:  # 🔥 ADICIONADO: blur
-                self.canvas.coords(self.current_element, self.start_x, self.start_y, event.x, event.y)
-            elif tool == "arrow":
-                self.canvas.coords(self.current_element, self.start_x, self.start_y, event.x, event.y)
-
-    def finalizar_desenho(self, event, tool, color, width):
-        """Finaliza o desenho e salva o elemento"""
-        if self.current_element and tool != "text":
-            coords = self.canvas.coords(self.current_element)
-            orig_coords = [int(coord / self.scale_factor) for coord in coords]
+                if elem_type == "circle":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_oval(x1, y1, x2, y2, outline=color, width=width)
+                elif elem_type == "rectangle":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+                elif elem_type == "arrow":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
+                elif elem_type == "text":
+                    x, y = scaled_coords
+                    self.canvas.create_text(x, y, text=text, fill=color, font=("Arial", 12), anchor="nw")
+                elif elem_type == "blur":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_rectangle(x1, y1, x2, y2, outline="#FF00FF", width=2, dash=(5,5))
             
-            element_data = {
-                "type": tool,
-                "coords": orig_coords,
-                "color": color,
-                "width": width
-            }
-            self.elements.append(element_data)
-            self.undo_stack.append(element_data.copy())
-            
-            self.aplicar_elemento_na_imagem(element_data)
-            self.atualizar_canvas()
-            
-            self.current_element = None
-
-    def aplicar_elemento_na_imagem(self, element):
-        """Aplica um elemento desenhado na imagem"""
-        draw = ImageDraw.Draw(self.editing_img)
+            if self.temp_element:
+                elem_type, coords, color, width, text = self.temp_element
+                scaled_coords = [int(c * self.scale_factor) for c in coords]
+                
+                if elem_type == "circle":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_oval(x1, y1, x2, y2, outline=color, width=width)
+                elif elem_type == "rectangle":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+                elif elem_type == "arrow":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.draw_arrow_on_canvas(x1, y1, x2, y2, color, width)
+                elif elem_type == "blur":
+                    x1, y1, x2, y2 = scaled_coords
+                    self.canvas.create_rectangle(x1, y1, x2, y2, outline="#FF00FF", width=2, dash=(5,5))
         
-        if element["type"] == "rectangle":
-            x1, y1, x2, y2 = element["coords"]
-            draw.rectangle([x1, y1, x2, y2], outline=element["color"], width=element["width"])
-        
-        elif element["type"] == "circle":
-            x1, y1, x2, y2 = element["coords"]
-            draw.ellipse([x1, y1, x2, y2], outline=element["color"], width=element["width"])
-        
-        elif element["type"] == "arrow":
-            x1, y1, x2, y2 = element["coords"]
-            draw.line([x1, y1, x2, y2], fill=element["color"], width=element["width"])
+        def draw_arrow_on_canvas(x1, y1, x2, y2, color, width):
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
             
-            arrow_size = element["width"] * 3
             angle = math.atan2(y2 - y1, x2 - x1)
             
-            ax1 = x2 - arrow_size * math.cos(angle - math.pi/6)
-            ay1 = y2 - arrow_size * math.sin(angle - math.pi/6)
-            ax2 = x2 - arrow_size * math.cos(angle + math.pi/6)
-            ay2 = y2 - arrow_size * math.sin(angle + math.pi/6)
+            arrow_size = 15
+            x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
+            y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
+            x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
+            y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
             
-            draw.line([x2, y2, ax1, ay1], fill=element["color"], width=element["width"])
-            draw.line([x2, y2, ax2, ay2], fill=element["color"], width=element["width"])
+            self.canvas.create_polygon(x2, y2, x3, y3, x4, y4, fill=color, outline=color)
         
-        elif element["type"] == "text":
-            try:
-                font = ImageFont.truetype("arial.ttf", element["size"])
-            except:
-                font = ImageFont.load_default()
-            draw.text((element["x"], element["y"]), element["text"], fill=element["color"], font=font)
+        def on_button_press(event):
+            start_xy["x"], start_xy["y"] = event.x, event.y
         
-        # 🔥 ADICIONADO: Aplicar efeito de mosaico
-        elif element["type"] == "blur":
-            x1, y1, x2, y2 = element["coords"]
-            # Ajustar coordenadas para garantir ordem correta
-            x1_norm = min(x1, x2)
-            y1_norm = min(y1, y2)
-            x2_norm = max(x1, x2)
-            y2_norm = max(y1, y2)
+        def on_motion(event):
+            if start_xy["x"] is not None:
+                sx, sy = start_xy["x"], start_xy["y"]
+                ex, ey = event.x, event.y
+                
+                ix1, iy1 = int(sx / self.scale_factor), int(sy / self.scale_factor)
+                ix2, iy2 = int(ex / self.scale_factor), int(ey / self.scale_factor)
+                
+                tool = tool_var.get()
+                color = color_var.get()
+                width = width_var.get()
+                
+                if tool == "circle":
+                    radius = int(((ix2 - ix1)**2 + (iy2 - iy1)**2)**0.5)
+                    self.temp_element = ("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, "")
+                elif tool == "rectangle":
+                    x1_norm = min(ix1, ix2)
+                    y1_norm = min(iy1, iy2)
+                    x2_norm = max(ix1, ix2)
+                    y2_norm = max(iy1, iy2)
+                    self.temp_element = ("rectangle", [x1_norm, y1_norm, x2_norm, y2_norm], color, width, "")
+                elif tool == "arrow":
+                    self.temp_element = ("arrow", [ix1, iy1, ix2, iy2], color, width, "")
+                elif tool == "blur":
+                    x1_norm = min(ix1, ix2)
+                    y1_norm = min(iy1, iy2)
+                    x2_norm = max(ix1, ix2)
+                    y2_norm = max(iy1, iy2)
+                    self.temp_element = ("blur", [x1_norm, y1_norm, x2_norm, y2_norm], "#FF00FF", 2, "")
+                
+                refresh_display()
+        
+        def on_button_release(event):
+            if start_xy["x"] is not None:
+                sx, sy = start_xy["x"], start_xy["y"]
+                ex, ey = event.x, event.y
+                
+                ix1, iy1 = int(sx / self.scale_factor), int(sy / self.scale_factor)
+                ix2, iy2 = int(ex / self.scale_factor), int(ey / self.scale_factor)
+                
+                tool = tool_var.get()
+                color = color_var.get()
+                width = width_var.get()
+                
+                self.undo_stack.clear()
+                
+                if tool == "circle":
+                    radius = int(((ix2 - ix1)**2 + (iy2 - iy1)**2)**0.5)
+                    self.elements.append(("circle", [ix1-radius, iy1-radius, ix1+radius, iy1+radius], color, width, ""))
+                
+                elif tool == "rectangle":
+                    x1_norm = min(ix1, ix2)
+                    y1_norm = min(iy1, iy2)
+                    x2_norm = max(ix1, ix2)
+                    y2_norm = max(iy1, iy2)
+                    self.elements.append(("rectangle", [x1_norm, y1_norm, x2_norm, y2_norm], color, width, ""))
+                
+                elif tool == "arrow":
+                    self.elements.append(("arrow", [ix1, iy1, ix2, iy2], color, width, ""))
+                
+                elif tool == "blur":
+                    x1_norm = min(ix1, ix2)
+                    y1_norm = min(iy1, iy2)
+                    x2_norm = max(ix1, ix2)
+                    y2_norm = max(iy1, iy2)
+                    self.elements.append(("blur", [x1_norm, y1_norm, x2_norm, y2_norm], "", 0, ""))
+                
+                elif tool == "text":
+                    text = simpledialog.askstring("Texto", "Digite o texto:", parent=editor)
+                    if text:
+                        self.elements.append(("text", [ix1, iy1], color, width, text))
+                        refresh_display()
+                
+                self.temp_element = None
+                refresh_display()
             
-            # Aplicar efeito de blur na área selecionada
-            region = self.editing_img.crop((x1_norm, y1_norm, x2_norm, y2_norm))
-            # Aumentar o valor do radius para um blur mais forte
-            blurred_region = region.filter(ImageFilter.GaussianBlur(15))
-            self.editing_img.paste(blurred_region, (x1_norm, y1_norm, x2_norm, y2_norm))
+            start_xy["x"], start_xy["y"] = None, None
+        
+        def on_key_press(event):
+            if event.keysym == 'z' and (event.state & 0x4):
+                undo_action()
 
-    def atualizar_canvas(self):
-        """Atualiza o canvas com a imagem editada"""
-        self.display_img = self.editing_img.resize(
-            (int(self.editing_img.width * self.scale_factor), 
-             int(self.editing_img.height * self.scale_factor)), 
-            Image.LANCZOS
-        )
-        self.current_tk_img = ImageTk.PhotoImage(self.display_img)
-        self.canvas.itemconfig(self.canvas_img, image=self.current_tk_img)
-
-    def desfazer_acao(self):
-        """Desfaz a última ação de desenho"""
-        if self.undo_stack:
-            ultimo_elemento = self.undo_stack.pop()
-            if ultimo_elemento in self.elements:
-                self.elements.remove(ultimo_elemento)
+        editor.bind('<Control-z>', on_key_press)
+        editor.bind('<Control-Z>', on_key_press)
+        
+        self.canvas.bind("<ButtonPress-1>", on_button_press)
+        self.canvas.bind("<B1-Motion>", on_motion)
+        self.canvas.bind("<ButtonRelease-1>", on_button_release)
+        
+        refresh_display()
+        
+        button_frame = self._create_styled_frame(canvas_frame)
+        button_frame.pack(pady=10)
+        
+        def salvar_edicao():
+            if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
+                try:
+                    self.color_chooser_window.destroy()
+                except:
+                    pass
             
-            self.editing_img = self.original_img.copy()
+            draw = ImageDraw.Draw(self.editing_img)
+            
             for element in self.elements:
-                self.aplicar_elemento_na_imagem(element)
+                elem_type, coords, color, width, text = element
+                
+                if elem_type == "circle":
+                    x1, y1, x2, y2 = coords
+                    draw.ellipse((x1, y1, x2, y2), outline=color, width=width)
+                
+                elif elem_type == "rectangle":
+                    x1, y1, x2, y2 = coords
+                    x1_norm = min(x1, x2)
+                    y1_norm = min(y1, y2)
+                    x2_norm = max(x1, x2)
+                    y2_norm = max(y1, y2)
+                    draw.rectangle((x1_norm, y1_norm, x2_norm, y2_norm), outline=color, width=width)
+                
+                elif elem_type == "arrow":
+                    x1, y1, x2, y2 = coords
+                    draw.line((x1, y1, x2, y2), fill=color, width=width)
+                    
+                    angle = math.atan2(y2 - y1, x2 - x1)
+                    
+                    arrow_size = 20
+                    x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
+                    y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
+                    x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
+                    y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
+                    
+                    draw.polygon([(x2, y2), (x3, y3), (x4, y4)], fill=color)
+                
+                elif elem_type == "text":
+                    x, y = coords
+                    try:
+                        font = ImageFont.truetype("arial.ttf", 16)
+                    except:
+                        font = ImageFont.load_default()
+                    
+                    draw.text((x, y), text, fill=color, font=font)
+                
+                elif elem_type == "blur":
+                    x1, y1, x2, y2 = coords
+                    region = self.editing_img.crop((x1, y1, x2, y2))
+                    blurred_region = region.filter(ImageFilter.GaussianBlur(15))
+                    self.editing_img.paste(blurred_region, (x1, y1, x2, y2))
             
-            self.atualizar_canvas()
-
-    def salvar_edicao(self, caminho_print, editor):
-        """Salva a edição da imagem - PRESERVA FORMATO ORIGINAL"""
-        try:
-            _, ext = os.path.splitext(caminho_print)
-            formato_original = ext.upper().replace('.', '')
-            
-            formato_map = {
-                'JPG': 'JPEG',
-                'JPEG': 'JPEG',
-                'PNG': 'PNG',
-                'BMP': 'BMP',
-                'GIF': 'GIF',
-                'TIFF': 'TIFF',
-                'TIF': 'TIFF'
-            }
-            
-            formato_save = formato_map.get(formato_original, 'PNG')
-            
-            if formato_save == 'JPEG':
-                if self.editing_img.mode in ('RGBA', 'LA', 'P'):
-                    background = Image.new('RGB', self.editing_img.size, (255, 255, 255))
-                    if self.editing_img.mode == 'P':
-                        self.editing_img = self.editing_img.convert('RGBA')
-                    background.paste(self.editing_img, mask=self.editing_img.split()[-1])
-                    save_img = background
-                else:
-                    save_img = self.editing_img.convert('RGB')
-            elif formato_save == 'PNG':
-                save_img = self.editing_img
-            elif formato_save in ['BMP', 'GIF', 'TIFF']:
-                if self.editing_img.mode == 'RGBA':
-                    save_img = self.editing_img.convert('RGB')
-                else:
-                    save_img = self.editing_img
-            else:
-                save_img = self.editing_img
-            
-            save_img.save(caminho_print, formato_save)
-            messagebox.showinfo("Sucesso", f"Evidência editada salva com sucesso!\nFormato: {formato_save}")
+            self.editing_img.convert("RGB").save(caminho_print, "PNG")
+            messagebox.showinfo("Edição", "Evidência atualizada com sucesso!")
             editor.destroy()
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar evidência editada: {str(e)}")
+
+        def fechar_editor():
+            if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
+                try:
+                    self.color_chooser_window.destroy()
+                except:
+                    pass
+            editor.destroy()
+
+        editor.protocol("WM_DELETE_WINDOW", fechar_editor)
+        
+        self._create_styled_button(button_frame, text="💾 Salvar e Fechar", command=salvar_edicao, 
+                                 style_type="accent").pack()
+
+        editor.transient(parent)
+
+    def set_color(self, color_var, color, preview_widget):
+        color_var.set(color)
+        preview_widget.config(bg=color)
+    
+    def choose_custom_color(self, parent, color_var, preview_widget):
+        if hasattr(self, 'color_chooser_window') and self.color_chooser_window:
+            try:
+                self.color_chooser_window.destroy()
+            except:
+                pass
+        
+        color = colorchooser.askcolor(title="Escolha uma cor", initialcolor=color_var.get(), parent=parent)
+        if color[1]:
+            color_var.set(color[1])
+            preview_widget.config(bg=color[1])
+    
+    def draw_arrow_on_canvas(self, x1, y1, x2, y2, color, width):
+        self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+        
+        angle = math.atan2(y2 - y1, x2 - x1)
+        
+        arrow_size = 15
+        x3 = x2 - arrow_size * math.cos(angle - math.pi/6)
+        y3 = y2 - arrow_size * math.sin(angle - math.pi/6)
+        x4 = x2 - arrow_size * math.cos(angle + math.pi/6)
+        y4 = y2 - arrow_size * math.sin(angle + math.pi/6)
+        
+        self.canvas.create_polygon(x2, y2, x3, y3, x4, y4, fill=color, outline=color)
 
 
 # Modo de execução independente
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("PrintF - Gerador de Evidências")
-    root.geometry("400x200")
+    root.geometry("350x350")
     root.resizable(False, False)
     
     try:
