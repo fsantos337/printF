@@ -37,8 +37,8 @@ class PrintFApp:
         self.root.title("PrintF - Sistema Completo de Evidências")
         
         # Usar tamanho salvo ou padrão
-        width = self.settings.get('window_size', {}).get('width', 1000)
-        height = self.settings.get('window_size', {}).get('height', 700)
+        width = self.settings.get('window_size', {}).get('width', 904)
+        height = self.settings.get('window_size', {}).get('height', 600)
         self.root.geometry(f"{width}x{height}")
         
         # Posição salva ou centralizada
@@ -47,7 +47,13 @@ class PrintFApp:
             y = self.settings['window_position']['y']
             self.root.geometry(f"+{x}+{y}")
         else:
-            self.root.eval('tk::PlaceWindow . center')
+            self.root.update_idletasks()
+            largura = self.root.winfo_width()
+            largura_tela = self.root.winfo_screenwidth()
+        
+            x = (largura_tela - largura) // 2
+            y = 30  # Margem do topo
+            self.root.geometry(f"+{x}+{y}")
         
         # Tamanho mínimo
         from config import APP_CONFIG

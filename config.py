@@ -69,10 +69,10 @@ class AppConfig:
     
     # Configurações de UI responsiva
     UI_SETTINGS = {
-        'min_width': 800,
+        'min_width': 904,
         'min_height': 600,
-        'default_width': 1000,
-        'default_height': 700,
+        'default_width': 904,
+        'default_height': 600,
         'responsive_breakpoints': {
             'small': 900,
             'medium': 1200,
