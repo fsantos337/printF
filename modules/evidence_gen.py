@@ -240,7 +240,7 @@ class EvidenceGeneratorModule:
             self.root.focus_set()
 
     def _create_interface(self):
-        """Cria a interface do módulo"""
+        """Cria la interface do módulo"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Gerador de Documentos de Evidências")
         self.root.geometry("350x350")
@@ -663,13 +663,41 @@ class EvidenceGeneratorModule:
             self.atualizar_exibicao()
 
     def editar_evidencia_atual(self):
+        """Abre o editor para a evidência atual e atualiza a exibição após edição"""
         self.salvar_comentario()
         if not self.prints or self.current_index >= len(self.prints):
             return
             
         caminho_print = self.prints[self.current_index]
-        self.abrir_editor(caminho_print, self.popup)
+        
+        # CORREÇÃO: Criar uma variável para controlar se a edição foi salva
+        self.edicao_salva = False
+        
+        # Abrir editor modal (aguardar até ser fechado)
+        editor = self.abrir_editor(caminho_print, self.popup)
+        
+        # CORREÇÃO: Esperar o editor ser fechado antes de continuar
+        if editor:
+            # Focar na janela do editor e aguardar
+            editor.focus_set()
+            editor.grab_set()
+            self.popup.wait_window(editor)
+        
+        # CORREÇÃO: Forçar a recarga completa da imagem após a edição
+        # Limpar todas as referências de imagem
+        if hasattr(self, 'current_img_tk'):
+            del self.current_img_tk
+            self.current_img_tk = None
+        
+        # Forçar o garbage collection
+        import gc
+        gc.collect()
+        
+        # Atualizar a exibição para mostrar a imagem editada
         self.atualizar_exibicao()
+        
+        # Feedback visual
+        print(f"✅ Evidência atualizada: {os.path.basename(caminho_print)}")
 
     def excluir_evidencia_atual(self):
         self.salvar_comentario()
@@ -786,6 +814,10 @@ class EvidenceGeneratorModule:
             for i, print_path in enumerate(self.prints, 1):
                 print(f"📷 Adicionando evidência {i}: {print_path}")
                 
+                # 🔥 CORREÇÃO: Adicionar separador ANTES da primeira evidência
+                if i == 1:
+                    self.doc.add_paragraph("―" * 36).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                
                 self.doc.add_paragraph().add_run(f"Evidência {i}").bold = True
                 
                 nome_arquivo = os.path.basename(print_path)
@@ -810,7 +842,7 @@ class EvidenceGeneratorModule:
                     print(f"❌ Erro ao adicionar imagem {print_path}: {e}")
                     self.doc.add_paragraph(f"[Erro ao carregar imagem: {print_path}]")
                 
-                self.doc.add_paragraph("―" * 50).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                self.doc.add_paragraph("―" * 36).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
@@ -853,7 +885,7 @@ class EvidenceGeneratorModule:
         return nome_limpo.strip()
 
     def abrir_editor(self, caminho_print, parent):
-        """Abre editor de imagens para a evidência"""
+        """Abre editor de imagens para a evidência - RETORNA A JANELA DO EDITOR"""
         editor = tk.Toplevel(parent)
         editor.title("Editor de Evidência")
         editor.geometry("1200x800")
@@ -1177,6 +1209,10 @@ class EvidenceGeneratorModule:
                     self.editing_img.paste(blurred_region, (x1, y1, x2, y2))
             
             self.editing_img.convert("RGB").save(caminho_print, "PNG")
+            
+            # CORREÇÃO: Marcar que a edição foi salva
+            self.edicao_salva = True
+            
             messagebox.showinfo("Edição", "Evidência atualizada com sucesso!")
             editor.destroy()
 
@@ -1186,6 +1222,11 @@ class EvidenceGeneratorModule:
                     self.color_chooser_window.destroy()
                 except:
                     pass
+            
+            # CORREÇÃO: Se não foi salvo, marcar como não salvo
+            if not hasattr(self, 'edicao_salva'):
+                self.edicao_salva = False
+                
             editor.destroy()
 
         editor.protocol("WM_DELETE_WINDOW", fechar_editor)
@@ -1194,6 +1235,9 @@ class EvidenceGeneratorModule:
                                  style_type="accent").pack()
 
         editor.transient(parent)
+        
+        # CORREÇÃO: Retornar a janela do editor para controle modal
+        return editor
 
     def set_color(self, color_var, color, preview_widget):
         color_var.set(color)
