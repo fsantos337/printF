@@ -209,16 +209,18 @@ class DocumentProcessor:
                      colunas_selecionadas: List[str] = None, dados_csv: Dict[str, str] = None) -> None:
         """Preenche o template com os dados fornecidos - AGORA ADICIONA APÓS CONTEÚDO EXISTENTE"""
         
-        # Adicionar quebra de página antes dos novos dados
-        doc.add_page_break()
+        # ADICIONAR ESPAÇO REDUZIDO APÓS O TÍTULO
+        espaco_apos_titulo = doc.add_paragraph()
+        espaco_apos_titulo.paragraph_format.space_after = Pt(1)
         
+       
         # Adicionar título da seção de dados
         titulo = doc.add_heading('Dados do Teste', level=1)
         for run in titulo.runs:
             run.font.name = 'Arial'
-            run.font.size = Pt(16)
+            run.font.size = Pt(14)
             run.bold = True
-            run.font.color.rgb = RGBColor(0, 0, 0)
+            run.font.color.rgb = RGBColor(0, 0, 0)  
         
         # Adicionar campos da configuração
         for campo_info in field_config:
@@ -269,6 +271,7 @@ class DocumentProcessor:
         
         # Adicionar título da tabela
         titulo = doc.add_heading('Dados Adicionais do Caso de Teste', level=2)
+        
         for run in titulo.runs:
             run.font.name = 'Arial'
             run.font.size = Pt(14)
