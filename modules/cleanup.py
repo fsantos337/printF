@@ -1,4 +1,3 @@
-# cleanup.py
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
@@ -30,7 +29,6 @@ class CleanupModule:
             self.using_liquid_glass = False
             self.style_manager = None
         except Exception as e:
-            print(f"⚠️ Erro ao detectar tema: {e}")
             self.using_liquid_glass = False
             self.style_manager = None
     
@@ -47,73 +45,85 @@ class CleanupModule:
             self._configure_widget_colors()
             
         except Exception as e:
-            print(f"⚠️ Erro ao aplicar tema: {e}")
+            pass
     
     def _configure_widget_colors(self):
         """Configura cores dos widgets para o tema Liquid Glass"""
         if not self.using_liquid_glass:
             return
             
-        # Configurar cores de fundo
-        bg_color = self.style_manager.BG_PRIMARY
-        card_bg = self.style_manager.BG_CARD
-        text_color = self.style_manager.TEXT_PRIMARY
-        secondary_text = self.style_manager.TEXT_SECONDARY
-        
-        # Aplicar às frames principais
-        self.main_frame.configure(bg=bg_color)
-        self.frame_superior.configure(bg=bg_color)
-        self.frame_selecao.configure(bg=bg_color)
-        self.frame_controles.configure(bg=bg_color)
-        self.frame_botoes_selecao.configure(bg=bg_color)
-        self.frame_lista.configure(bg=bg_color)
-        self.frame_acao.configure(bg=bg_color)
-        self.frame_info.configure(bg=bg_color)
-        self.frame_botoes_acao.configure(bg=bg_color)
-        
-        # Configurar LabelFrame
-        self.frame_lista.configure(bg=bg_color, fg=text_color)
-        
-        # Configurar labels
-        labels = [
-            self.titulo, self.label_info, self.label_docx, 
-            self.label_imagens, self.label_outros, self.label_selecionados
-        ]
-        
-        for label in labels:
-            if hasattr(label, 'configure'):
-                label.configure(bg=bg_color, fg=text_color)
-        
-        # Configurar botões padrão
-        buttons = [
-            self.btn_selecionar, self.btn_sel_todos, self.btn_desel_todos,
-            self.btn_sel_imagens, self.btn_sel_docx, self.btn_voltar
-        ]
-        
-        for button in buttons:
-            if hasattr(button, 'configure'):
-                button.configure(
-                    bg=self.style_manager.BG_CARD,
+        try:
+            # Configurar cores de fundo
+            bg_color = self.style_manager.BG_PRIMARY
+            card_bg = self.style_manager.BG_CARD
+            text_color = self.style_manager.TEXT_PRIMARY
+            secondary_text = self.style_manager.TEXT_SECONDARY
+            
+            # Aplicar às frames principais (com verificação de existência)
+            widgets_to_configure = [
+                'main_frame', 'frame_superior', 'frame_selecao', 
+                'frame_controles', 'frame_botoes_selecao', 'frame_lista',
+                'frame_acao', 'frame_info', 'frame_botoes_acao'
+            ]
+            
+            for widget_name in widgets_to_configure:
+                if hasattr(self, widget_name):
+                    widget = getattr(self, widget_name)
+                    if hasattr(widget, 'configure') and widget.winfo_exists():
+                        widget.configure(bg=bg_color)
+            
+            # Configurar LabelFrame
+            if hasattr(self, 'frame_lista') and self.frame_lista.winfo_exists():
+                self.frame_lista.configure(bg=bg_color, fg=text_color)
+            
+            # Configurar labels
+            labels = [
+                'titulo', 'label_info', 'label_docx', 
+                'label_imagens', 'label_outros', 'label_selecionados'
+            ]
+            
+            for label_name in labels:
+                if hasattr(self, label_name):
+                    label = getattr(self, label_name)
+                    if hasattr(label, 'configure') and label.winfo_exists():
+                        label.configure(bg=bg_color, fg=text_color)
+            
+            # Configurar botões padrão
+            buttons = [
+                'btn_selecionar', 'btn_sel_todos', 'btn_desel_todos',
+                'btn_sel_imagens', 'btn_sel_docx', 'btn_voltar'
+            ]
+            
+            for button_name in buttons:
+                if hasattr(self, button_name):
+                    button = getattr(self, button_name)
+                    if hasattr(button, 'configure') and button.winfo_exists():
+                        button.configure(
+                            bg=self.style_manager.BG_CARD,
+                            fg=text_color,
+                            relief="flat",
+                            borderwidth=1
+                        )
+            
+            # Configurar botão de excluir selecionados
+            if hasattr(self, 'btn_excluir_selecionados') and self.btn_excluir_selecionados.winfo_exists():
+                self.btn_excluir_selecionados.configure(
+                    bg=self.style_manager.ACCENT_WARNING,
                     fg=text_color,
-                    relief="flat",
-                    borderwidth=1
+                    relief="flat"
+                )
+            
+            # Configurar entry
+            if hasattr(self, 'entry_pasta') and self.entry_pasta.winfo_exists():
+                self.entry_pasta.configure(
+                    bg=self.style_manager.BG_SECONDARY,
+                    fg=text_color,
+                    insertbackground=text_color,
+                    relief="flat"
                 )
         
-        # Configurar botão de excluir selecionados
-        if hasattr(self, 'btn_excluir_selecionados'):
-            self.btn_excluir_selecionados.configure(
-                bg=self.style_manager.ACCENT_WARNING,
-                fg=text_color,
-                relief="flat"
-            )
-        
-        # Configurar entry
-        self.entry_pasta.configure(
-            bg=self.style_manager.BG_SECONDARY,
-                    fg=text_color,
-            insertbackground=text_color,
-            relief="flat"
-        )
+        except Exception as e:
+            pass
     
     def _create_styled_button(self, parent, text, command, style_type="glass", **kwargs):
         """Cria botão com estilo apropriado baseado no tema"""
@@ -435,26 +445,18 @@ class CleanupModule:
         self.root.lift()
         self.root.focus_set()
         
-        # 🔥 NOVO: Configurar protocolo de fechamento para restaurar janela principal
+        # Configurar protocolo de fechamento para restaurar janela principal
         self.root.protocol("WM_DELETE_WINDOW", self._on_close_window)
 
     def _on_close_window(self):
         """Manipula o fechamento da janela do módulo"""
         self.hide()
-        # 🔥 NOVO: Restaura a janela principal quando o módulo é fechado
-        try:
-            self.parent.deiconify()
-        except:
-            pass
 
     def _create_interface(self):
         """Cria a interface do módulo"""
         self.root = tk.Toplevel(self.parent)
         self.root.title("PrintF - Limpeza de Arquivos")
-        self.root.geometry("900x700")
-        
-        # Aplicar tema se estiver ativo
-        self._apply_theme_to_widgets()
+        self.root.geometry("900x800")
         
         # Centralizar na tela principal
         self.root.transient(self.parent)
@@ -603,8 +605,8 @@ class CleanupModule:
                                                    width=20)
         self.btn_voltar.pack(pady=10)
         
-        # Aplicar configurações de cores após criar todos os widgets
-        self._configure_widget_colors()
+        # Aplicar tema após criar todos os widgets
+        self.root.after(100, self._apply_theme_to_widgets)
 
     def hide(self):
         """Esconde a interface do módulo"""
@@ -612,11 +614,6 @@ class CleanupModule:
             try:
                 self.root.grab_release()
                 self.root.withdraw()
-                # 🔥 NOVO: Restaura a janela principal ao fechar o módulo
-                try:
-                    self.parent.deiconify()
-                except:
-                    pass
             except:
                 pass
 
