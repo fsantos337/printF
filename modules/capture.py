@@ -2619,6 +2619,10 @@ class CaptureModule:
             for i, print_path in enumerate(self.prints, 1):
                 print(f"📷 Adicionando evidência {i}: {print_path}")
                 
+                # 🔥 CORREÇÃO: Adicionar separador ANTES da primeira evidência
+                if i == 1:
+                    self.doc.add_paragraph("―" * 36).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                
                 # Adicionar título da evidência
                 self.doc.add_paragraph().add_run(f"Evidência {i}").bold = True
                 
@@ -2647,9 +2651,9 @@ class CaptureModule:
                     print(f"❌ Erro ao adicionar imagem {print_path}: {e}")
                     self.doc.add_paragraph(f"[Erro ao carregar imagem: {print_path}]")
                 
-                # Adicionar separador
+                # 🔥 CORREÇÃO: Adicionar separador DEPOIS de CADA evidência
                 self.doc.add_paragraph("―" * 36).alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            
+             
             # 🔥 CORREÇÃO: USAR NOME DO TEMPLATE PARA O DOCUMENTO
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
